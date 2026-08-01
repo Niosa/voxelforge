@@ -12,6 +12,8 @@
   "dependencies": {
     "@turf/centroid": "^7.2.0",
     "@turf/turf": "^7.2.0",
+    "aabb-3d": "https://codeload.github.com/fenomas/aabb-3d/tar.gz/b928d0a65f64d0014e36231f94f401967a3b49ef",
+    "box-intersect": "https://codeload.github.com/fenomas/box-intersect/tar.gz/383cb9bef2cf7140ca6ca9b705669fb108d1357f",
     "cesium": "^1.126.0",
     "immer": "^10.1.1",
     "noa-engine": "^0.33.0",
@@ -19,6 +21,10 @@
     "react-dom": "^18.3.1",
     "ulid": "^2.3.0",
     "zustand": "^4.5.5"
+  },
+  "overrides": {
+    "aabb-3d": "https://codeload.github.com/fenomas/aabb-3d/tar.gz/b928d0a65f64d0014e36231f94f401967a3b49ef",
+    "box-intersect": "https://codeload.github.com/fenomas/box-intersect/tar.gz/383cb9bef2cf7140ca6ca9b705669fb108d1357f"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.16",
