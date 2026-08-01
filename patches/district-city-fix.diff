@@ -1,0 +1,121 @@
+diff --git a/src/globe/entitySync.ts b/src/globe/entitySync.ts
+index 0000000..1111111 100644
+--- a/src/globe/entitySync.ts
++++ b/src/globe/entitySync.ts
+@@ -570,7 +570,11 @@ export function syncEntitiesToCesium(
+     const showBuildings =
+       entity.properties?.generate3DBuildings !== false &&
+       useUiStore.getState().fantasyBuildingsEnabled &&
+       !useUiStore.getState().performanceMode;
+     if (showBuildings) {
+-      const structures = createTownStructureEntities(viewer, entity);
++      const structures = createTownStructureEntities(
++        viewer,
++        entity,
++        entity.properties?.districtType as 'downtown' | 'commercial' | 'residential' | 'industrial' | undefined,
++      );
+       for (const st of structures) {
+         const added = viewer.entities.add(st);
+         created.push(added);
+       }
+@@ -727,7 +731,11 @@ export function syncEntitiesToCesium(
+       const showBuildings =
+         entity.properties?.generate3DBuildings !== false &&
+         useUiStore.getState().fantasyBuildingsEnabled &&
+         !useUiStore.getState().performanceMode;
+       if (showBuildings) {
+-        const structures = createTownStructureEntities(viewer, entity);
++        const structures = createTownStructureEntities(
++          viewer,
++          entity,
++          entity.properties?.districtType as 'downtown' | 'commercial' | 'residential' | 'industrial' | undefined,
++        );
+         for (const st of structures) {
+           const added = viewer.entities.add(st);
+           created.push(added);
+         }
+       }
+diff --git a/src/globe/townStructures.ts b/src/globe/townStructures.ts
+index 0000000..2222222 100644
+--- a/src/globe/townStructures.ts
++++ b/src/globe/townStructures.ts
+@@ -8,6 +8,7 @@ import {
+ import type { TerraEntity, TerraGeometry } from '@/entities/types';
+ import { geometryCentroid } from '@/geo/centroid';
++import { getEntityArea } from '@/geo/geometryArea';
+ import { useWorldStore } from '@/state/worldStore';
+ import { useUiStore } from '@/state/uiStore';
+ import { LruCache } from '@/utils/lruCache';
+@@ -184,7 +185,7 @@ function getMegaSkyscraperFacade(): string {
+ export function createTownStructureEntities(
+   _viewer: Viewer,
+   entity: TerraEntity,
++  districtType?: 'downtown' | 'commercial' | 'residential' | 'industrial',
+ ): Entity[] {
+   if (entity.type !== 'city' && entity.type !== 'town') {
+     return [];
+   }
+@@ -253,12 +254,28 @@ export function createTownStructureEntities(
+         }
+       }
+     }
+ 
+-    const isTouch = typeof navigator !== 'undefined' && ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
+-    const maxBuildings = isTouch ? 9 : 16;
+-    gridPoints = gridPoints.slice(0, maxBuildings);
++    const entityArea = getEntityArea(entity);
++    const population = typeof entity.properties?.population === 'number' ? entity.properties.population : 0;
++
++    let desiredBuildings = Math.max(4, Math.ceil(entityArea / 5000));
++    if (population > 0) {
++      desiredBuildings = Math.max(desiredBuildings, Math.ceil(population / 100));
++    }
++
++    const districtMultiplier =
++      districtType === 'downtown' ? 1.5 :
++      districtType === 'commercial' ? 1.2 :
++      districtType === 'residential' ? 0.8 :
++      districtType === 'industrial' ? 0.7 :
++      1.0;
++
++    desiredBuildings = Math.ceil(desiredBuildings * districtMultiplier);
++
++    const isTouch = typeof navigator !== 'undefined' && ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
++    const maxBuildings = isTouch ? 12 : 24;
++    gridPoints = gridPoints
++      .sort((a, b) => a.dist - b.dist)
++      .slice(0, Math.min(desiredBuildings, maxBuildings));
+ 
+     for (const pt of gridPoints) {
+       const bLng = pt.lon;
+@@ -269,7 +286,9 @@ export function createTownStructureEntities(
+         height = Math.max(220, (isCity ? 450 : 260) - dist * 45 + (seed % 70));
+         wD = 38 + (seed % 22);
+         wH = 38 + ((seed * 3) % 22);
+-        facadeUrl = (seed % 2 === 0) ? getCurtainWallFacade(seed) : getSetbackTowerFacade(seed);
++        facadeUrl = districtType === 'residential' || districtType === 'industrial'
++          ? getResidentialFacade(seed)
++          : (seed % 2 === 0) ? getCurtainWallFacade(seed) : getSetbackTowerFacade(seed);
+         if (seed % 5 === 0) isCylinder = true;
+         else if (seed % 3 === 0) isSetback = true;
+         else if (seed % 7 === 0) isTwinTower = true;
+@@ -277,7 +296,9 @@ export function createTownStructureEntities(
+         height = Math.max(100, (isCity ? 230 : 130) - dist * 35 + (seed % 45));
+         wD = 42 + (seed % 25);
+         wH = 32 + ((seed * 7) % 22);
+-        facadeUrl = (seed % 2 === 0) ? getConcreteCoreFacade(seed) : getCurtainWallFacade(seed);
++        facadeUrl = districtType === 'industrial'
++          ? getIndustrialFacade(seed)
++          : (seed % 2 === 0) ? getConcreteCoreFacade(seed) : getCurtainWallFacade(seed);
+         if (seed % 6 === 0) isCylinder = true;
+       } else {
+         height = Math.max(35, (isCity ? 110 : 55) + (seed % 40));
+         wD = 46 + (seed % 20);
+         wH = 26 + ((seed * 11) % 20);
+-        facadeUrl = (seed % 2 === 0) ? getResidentialFacade(seed) : getIndustrialFacade(seed);
++        facadeUrl = districtType === 'residential'
++          ? getResidentialFacade(seed)
++          : districtType === 'industrial'
++          ? getIndustrialFacade(seed)
++          : (seed % 2 === 0) ? getResidentialFacade(seed) : getIndustrialFacade(seed);
+       }
