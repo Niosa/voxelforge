@@ -11,6 +11,7 @@ import {
   setFantasyWorldFlag,
   setGlobeImageryStyle,
   getCurrentImageryStyle,
+  getViewer,
 } from '@/globe/CesiumViewer';
 import { syncEntitiesToCesium } from '@/globe/entitySync';
 import { flyToWorldCamera } from '@/globe/camera';
@@ -42,10 +43,6 @@ export function GlobeView() {
   // Re-sync whenever the active world changes (switch, preset load, persistence restore)
   useEffect(() => {
     if (!world) return;
-    const viewer = (window as any).__cesiumViewer ||
-      // fall back to the module-level getter
-      (require('@/globe/CesiumViewer') as any).getViewer?.();
-
     const fantasy = isFantasyWorld(world);
     setFantasyWorldFlag(fantasy);
     setGlobeImageryStyle(
@@ -53,28 +50,23 @@ export function GlobeView() {
       world.entities,
       world.properties?.theme ?? 'medieval',
     );
-
-    const { getViewer } = require('@/globe/CesiumViewer') as any;
-    const v = getViewer?.();
+    const v = getViewer();
     if (v) {
       syncEntitiesToCesium(v, world.entities, selectedId);
       flyToWorldCamera(v, world);
     }
-    void viewer;
   }, [activeWorldId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync entity edits on the current world
   useEffect(() => {
-    const { getViewer } = require('@/globe/CesiumViewer') as any;
-    const v = getViewer?.();
+    const v = getViewer();
     if (!v || !world) return;
     syncEntitiesToCesium(v, world.entities, selectedId);
   }, [world.entities, selectedId]);
 
   // Auto-save on every world mutation
   useEffect(() => {
-    const store = useWorldStore.getState();
-    store.saveActiveWorld().catch(() => {});
+    useWorldStore.getState().saveActiveWorld().catch(() => {});
   }, [world]);
 
   return (
