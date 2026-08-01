@@ -1,0 +1,1425 @@
+```text
+terraforge/
+├── PROJECT_PLAN.md          # (your full plan from previous message)
+├── CHECKLIST.md
+├── README.md
+├── package.json
+├── tsconfig.json
+├── tsconfig.app.json
+├── tsconfig.node.json
+├── vite.config.ts
+├── tailwind.config.js
+├── postcss.config.js
+├── index.html
+├── .env.example
+├── .gitignore
+├── docs/
+│   ├── AGENT_RULES.md
+│   ├── DATA_MODEL.md
+│   ├── UX_FLOWS.md
+│   ├── DEMO.md
+│   └── ASSETS.md
+├── public/
+│   ├── favicon.svg
+│   └── samples/
+│       └── demo-world.json
+└── src/
+    ├── main.tsx
+    ├── App.tsx
+    ├── vite-env.d.ts
+    ├── index.css
+    ├── app/
+    │   └── providers.tsx
+    ├── globe/
+    │   ├── CesiumViewer.ts
+    │   ├── GlobeView.tsx
+    │   ├── entitySync.ts
+    │   └── camera.ts
+    ├── drawing/
+    │   ├── types.ts
+    │   ├── DrawController.ts
+    │   ├── DrawPolygonTool.ts
+    │   ├── EditVerticesTool.ts
+    │   └── PlacePointTool.ts
+    ├── entities/
+    │   ├── types.ts
+    │   ├── factory.ts
+    │   └── hierarchy.ts
+    ├── geo/
+    │   ├── validate.ts
+    │   ├── centroid.ts
+    │   └── turfHelpers.ts
+    ├── state/
+    │   ├── worldStore.ts
+    │   ├── uiStore.ts
+    │   └── history/
+    │       ├── HistoryStack.ts
+    │       └── commands.ts
+    ├── persistence/
+    │   ├── idb.ts
+    │   └── exportImport.ts
+    ├── search/
+    │   └── searchIndex.ts
+    ├── ui/
+    │   ├── layout/
+    │   │   ├── AppShell.tsx
+    │   │   ├── TopBar.tsx
+    │   │   ├── ToolRail.tsx
+    │   │   ├── InspectorPanel.tsx
+    │   │   └── StatusBar.tsx
+    │   └── common/
+    │       ├── IconButton.tsx
+    │       └── EmptyState.tsx
+    ├── workers/
+    │   └── .gitkeep
+    └── assets/
+        └── .gitkeep
+```
+
+
+***
+
+## 4. Config stubs
+
+### `vite.config.ts`
+
+```ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import cesium from 'vite-plugin-cesium';
+import path from 'node:path';
+
+export default defineConfig({
+  plugins: [react(), cesium()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
+  },
+  server: {
+    host: true,
+    port: 5173,
+  },
+  build: {
+    chunkSizeWarningLimit: 1600,
+  },
+});
+```
+
+
+### `tsconfig.app.json` (paths excerpt)
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+```
+
+
+### `src/index.css`
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --tf-bg: #0b1220;
+  --tf-accent: #2dd4bf;
+  --tf-accent-2: #fb7185;
+  --tf-panel: rgba(15, 23, 42, 0.72);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--tf-bg);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* Cesium credit can stay; hide default toolbar we replace */
+.cesium-viewer-toolbar,
+.cesium-viewer-animationContainer,
+.cesium-viewer-timelineContainer,
+.cesium-viewer-bottom {
+  display: none !important;
+}
+```
+
+
+### `.env.example`
+
+```bash
+# Optional — app must run WITHOUT this set
+# VITE_CESIUM_ION_ACCESS_TOKEN=
+```
+
+
+### `.gitignore`
+
+```gitignore
+node_modules
+dist
+.DS_Store
+.env
+.env.local
+*.local
+coverage
+playwright-report
+test-results
+```
+
+
+***
+
+## 5. Core stub modules
+
+### `src/entities/types.ts`
+
+```ts
+export type EntityType =
+  | 'continent'
+  | 'region'
+  | 'island'
+  | 'city'
+  | 'town'
+  | 'landmark'
+  | 'custom';
+
+export type TerraGeometry =
+  | GeoJSON.Polygon
+  | GeoJSON.MultiPolygon
+  | GeoJSON.Point;
+
+export interface TerraImageRef {
+  id: string;
+  blobKey: string;
+  caption?: string;
+}
+
+export interface TerraEntity {
+  id: string;
+  type: EntityType;
+  name: string;
+  description: string;
+  tags: string[];
+  color: string;
+  fillOpacity: number;
+  parentId: string | null;
+  geometry: TerraGeometry;
+  images: TerraImageRef[];
+  properties: Record<string, string | number | boolean>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CameraState {
+  lon: number;
+  lat: number;
+  height: number;
+  heading: number;
+  pitch: number;
+}
+
+export interface World {
+  id: string;
+  name: string;
+  seed?: number;
+  entities: Record<string, TerraEntity>;
+  camera: CameraState;
+  version: 1;
+}
+
+export type ToolMode =
+  | 'select'
+  | 'pan'
+  | 'drawPolygon'
+  | 'editVertices'
+  | 'placePoint';
+```
+
+
+### `src/entities/factory.ts`
+
+```ts
+import { ulid } from 'ulid';
+import type { EntityType, TerraEntity, TerraGeometry, World } from './types';
+
+export function createEntityId(): string {
+  return ulid();
+}
+
+export function createEntity(
+  partial: Pick<TerraEntity, 'type' | 'name' | 'geometry'> &
+    Partial<Omit<TerraEntity, 'id' | 'createdAt' | 'updatedAt'>>,
+): TerraEntity {
+  const now = Date.now();
+  return {
+    id: createEntityId(),
+    type: partial.type,
+    name: partial.name,
+    description: partial.description ?? '',
+    tags: partial.tags ?? [],
+    color: partial.color ?? '#2dd4bf',
+    fillOpacity: partial.fillOpacity ?? 0.35,
+    parentId: partial.parentId ?? null,
+    geometry: partial.geometry,
+    images: partial.images ?? [],
+    properties: partial.properties ?? {},
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function createEmptyWorld(name = 'New World'): World {
+  return {
+    id: createEntityId(),
+    name,
+    entities: {},
+    camera: {
+      lon: 0,
+      lat: 20,
+      height: 12_000_000,
+      heading: 0,
+      pitch: -90,
+    },
+    version: 1,
+  };
+}
+
+/** Dev helper — simple rectangle continent near 0,0 */
+export function createSampleContinent(): TerraEntity {
+  const geometry: TerraGeometry = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [-20, -10],
+        [20, -10],
+        [20, 10],
+        [-20, 10],
+        [-20, -10],
+      ],
+    ],
+  };
+  return createEntity({
+    type: 'continent' satisfies EntityType,
+    name: 'Aetherra',
+    description: 'A sample continent. Replace me — draw your own!',
+    color: '#38bdf8',
+    fillOpacity: 0.4,
+    geometry,
+    tags: ['demo', 'fantasy'],
+  });
+}
+```
+
+> If `ulid` is undesirable, swap for `crypto.randomUUID()`.
+
+### `src/geo/validate.ts`
+
+```ts
+import type { TerraGeometry } from '@/entities/types';
+
+export function isClosedRing(ring: number[][]): boolean {
+  if (ring.length < 4) return false;
+  const first = ring[^0];
+  const last = ring[ring.length - 1];
+  return first[^0] === last[^0] && first[^1] === last[^1];
+}
+
+export function validateGeometry(geometry: TerraGeometry): string[] {
+  const errors: string[] = [];
+
+  if (geometry.type === 'Point') {
+    const [lon, lat] = geometry.coordinates;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      errors.push('Point has non-finite coordinates');
+    }
+    if (Math.abs(lat) > 90) errors.push('Point latitude out of range');
+    if (Math.abs(lon) > 180) errors.push('Point longitude out of range');
+    return errors;
+  }
+
+  const polys =
+    geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+
+  for (const polygon of polys) {
+    const exterior = polygon[^0];
+    if (!exterior || exterior.length < 4) {
+      errors.push('Polygon exterior needs at least 3 vertices + close');
+      continue;
+    }
+    if (!isClosedRing(exterior)) {
+      errors.push('Polygon exterior ring must be closed');
+    }
+  }
+
+  return errors;
+}
+
+export function assertValidGeometry(geometry: TerraGeometry): void {
+  const errors = validateGeometry(geometry);
+  if (errors.length) {
+    throw new Error(`Invalid geometry: ${errors.join('; ')}`);
+  }
+}
+```
+
+
+### `src/geo/centroid.ts`
+
+```ts
+import centroid from '@turf/centroid';
+import type { TerraGeometry } from '@/entities/types';
+
+/** Returns [lon, lat] suitable for label anchors */
+export function geometryCentroid(geometry: TerraGeometry): [number, number] {
+  if (geometry.type === 'Point') {
+    return [geometry.coordinates[^0], geometry.coordinates[^1]];
+  }
+  const feature = {
+    type: 'Feature' as const,
+    properties: {},
+    geometry,
+  };
+  const c = centroid(feature);
+  return c.geometry.coordinates as [number, number];
+}
+```
+
+
+### `src/state/worldStore.ts`
+
+```ts
+import { create } from 'zustand';
+import { immer } from 'zustand/middleware/immer';
+import type { TerraEntity, World } from '@/entities/types';
+import { createEmptyWorld, createSampleContinent } from '@/entities/factory';
+
+interface WorldState {
+  world: World;
+  selectedId: string | null;
+  setWorld: (world: World) => void;
+  select: (id: string | null) => void;
+  upsertEntity: (entity: TerraEntity) => void;
+  removeEntity: (id: string) => void;
+  updateEntity: (id: string, patch: Partial<TerraEntity>) => void;
+  loadDemo: () => void;
+}
+
+export const useWorldStore = create<WorldState>()(
+  immer((set) => ({
+    world: createEmptyWorld('Blank Planet'),
+    selectedId: null,
+
+    setWorld: (world) =>
+      set((s) => {
+        s.world = world;
+        s.selectedId = null;
+      }),
+
+    select: (id) =>
+      set((s) => {
+        s.selectedId = id;
+      }),
+
+    upsertEntity: (entity) =>
+      set((s) => {
+        s.world.entities[entity.id] = entity;
+      }),
+
+    removeEntity: (id) =>
+      set((s) => {
+        delete s.world.entities[id];
+        if (s.selectedId === id) s.selectedId = null;
+      }),
+
+    updateEntity: (id, patch) =>
+      set((s) => {
+        const existing = s.world.entities[id];
+        if (!existing) return;
+        s.world.entities[id] = {
+          ...existing,
+          ...patch,
+          id: existing.id,
+          updatedAt: Date.now(),
+        };
+      }),
+
+    loadDemo: () =>
+      set((s) => {
+        const continent = createSampleContinent();
+        s.world = createEmptyWorld('Aetherra Demo');
+        s.world.entities[continent.id] = continent;
+        s.selectedId = continent.id;
+      }),
+  })),
+);
+```
+
+
+### `src/state/uiStore.ts`
+
+```ts
+import { create } from 'zustand';
+import type { ToolMode } from '@/entities/types';
+
+interface UiState {
+  tool: ToolMode;
+  inspectorOpen: boolean;
+  fpsVisible: boolean;
+  setTool: (tool: ToolMode) => void;
+  setInspectorOpen: (open: boolean) => void;
+}
+
+export const useUiStore = create<UiState>((set) => ({
+  tool: 'select',
+  inspectorOpen: true,
+  fpsVisible: import.meta.env.DEV,
+  setTool: (tool) => set({ tool }),
+  setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
+}));
+```
+
+
+### `src/state/history/HistoryStack.ts`
+
+```ts
+export interface Command {
+  name: string;
+  execute: () => void;
+  undo: () => void;
+}
+
+export class HistoryStack {
+  private past: Command[] = [];
+  private future: Command[] = [];
+  private readonly max = 100;
+
+  execute(cmd: Command): void {
+    cmd.execute();
+    this.past.push(cmd);
+    if (this.past.length > this.max) this.past.shift();
+    this.future = [];
+  }
+
+  undo(): void {
+    const cmd = this.past.pop();
+    if (!cmd) return;
+    cmd.undo();
+    this.future.push(cmd);
+  }
+
+  redo(): void {
+    const cmd = this.future.pop();
+    if (!cmd) return;
+    cmd.execute();
+    this.past.push(cmd);
+  }
+
+  clear(): void {
+    this.past = [];
+    this.future = [];
+  }
+}
+
+export const history = new HistoryStack();
+```
+
+
+### `src/state/history/commands.ts`
+
+```ts
+import type { TerraEntity } from '@/entities/types';
+import { useWorldStore } from '@/state/worldStore';
+import type { Command } from './HistoryStack';
+
+export class AddEntityCommand implements Command {
+  name = 'AddEntity';
+  constructor(private entity: TerraEntity) {}
+
+  execute(): void {
+    useWorldStore.getState().upsertEntity(this.entity);
+  }
+
+  undo(): void {
+    useWorldStore.getState().removeEntity(this.entity.id);
+  }
+}
+
+export class DeleteEntityCommand implements Command {
+  name = 'DeleteEntity';
+  private snapshot: TerraEntity | null = null;
+
+  constructor(private id: string) {}
+
+  execute(): void {
+    const entity = useWorldStore.getState().world.entities[this.id];
+    if (!entity) return;
+    this.snapshot = structuredClone(entity);
+    useWorldStore.getState().removeEntity(this.id);
+  }
+
+  undo(): void {
+    if (this.snapshot) {
+      useWorldStore.getState().upsertEntity(this.snapshot);
+    }
+  }
+}
+
+export class UpdateEntityCommand implements Command {
+  name = 'UpdateEntity';
+  private before: TerraEntity | null = null;
+
+  constructor(
+    private id: string,
+    private patch: Partial<TerraEntity>,
+  ) {}
+
+  execute(): void {
+    const entity = useWorldStore.getState().world.entities[this.id];
+    if (!entity) return;
+    this.before = structuredClone(entity);
+    useWorldStore.getState().updateEntity(this.id, this.patch);
+  }
+
+  undo(): void {
+    if (!this.before) return;
+    useWorldStore.getState().upsertEntity(this.before);
+  }
+}
+```
+
+
+### `src/globe/CesiumViewer.ts`
+
+```ts
+import {
+  Viewer,
+  Cartesian3,
+  Color,
+  EllipsoidTerrainProvider,
+  Math as CesiumMath,
+  SceneMode,
+} from 'cesium';
+import 'cesium/Build/Cesium/Widgets/widgets.css';
+
+let viewer: Viewer | null = null;
+
+export function getViewer(): Viewer | null {
+  return viewer;
+}
+
+export function createTerraforgeViewer(container: HTMLElement): Viewer {
+  if (viewer) {
+    return viewer;
+  }
+
+  // Intentionally NO Ion.defaultAccessToken — offline stylized globe
+  viewer = new Viewer(container, {
+    animation: false,
+    timeline: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    fullscreenButton: false,
+    infoBox: false,
+    selectionIndicator: true,
+    creditContainer: document.createElement('div'),
+    terrainProvider: new EllipsoidTerrainProvider(),
+    sceneMode: SceneMode.SCENE3D,
+  });
+
+  // Remove default imagery; solid ocean-like globe
+  viewer.imageryLayers.removeAll();
+  viewer.scene.globe.baseColor = Color.fromCssColorString('#0c4a6e');
+  viewer.scene.backgroundColor = Color.fromCssColorString('#020617');
+  viewer.scene.globe.enableLighting = false;
+  viewer.scene.fog.enabled = true;
+  viewer.scene.skyAtmosphere.show = true;
+
+  viewer.camera.setView({
+    destination: Cartesian3.fromDegrees(0, 20, 12_000_000),
+    orientation: {
+      heading: 0,
+      pitch: CesiumMath.toRadians(-90),
+      roll: 0,
+    },
+  });
+
+  return viewer;
+}
+
+export function destroyTerraforgeViewer(): void {
+  if (viewer && !viewer.isDestroyed()) {
+    viewer.destroy();
+  }
+  viewer = null;
+}
+```
+
+
+### `src/globe/GlobeView.tsx`
+
+```tsx
+import { useEffect, useRef } from 'react';
+import {
+  createTerraforgeViewer,
+  destroyTerraforgeViewer,
+  getViewer,
+} from '@/globe/CesiumViewer';
+import { useWorldStore } from '@/state/worldStore';
+import { syncEntitiesToCesium } from '@/globe/entitySync';
+
+export function GlobeView() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const entities = useWorldStore((s) => s.world.entities);
+  const selectedId = useWorldStore((s) => s.selectedId);
+  const select = useWorldStore((s) => s.select);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const viewer = createTerraforgeViewer(el);
+
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    // Deferred: wire pick → select in Phase 2
+    void handler;
+
+    return () => {
+      handler.destroy();
+      destroyTerraforgeViewer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
+  }, []);
+
+  useEffect(() => {
+    const viewer = getViewer();
+    if (!viewer) return;
+    syncEntitiesToCesium(viewer, entities, selectedId);
+  }, [entities, selectedId]);
+
+  // Silence unused until Phase 2 pick wiring
+  void select;
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0 touch-none"
+      data-testid="globe-canvas"
+    />
+  );
+}
+
+// Cesium namespace import for handler type side-effect free stub
+import * as Cesium from 'cesium';
+```
+
+
+### `src/globe/entitySync.ts`
+
+```ts
+import {
+  Viewer,
+  Color,
+  Cartesian3,
+  HeightReference,
+  HorizontalOrigin,
+  VerticalOrigin,
+  Entity,
+} from 'cesium';
+import type { TerraEntity } from '@/entities/types';
+import { geometryCentroid } from '@/geo/centroid';
+
+const managed = new Map<string, Entity>();
+
+export function syncEntitiesToCesium(
+  viewer: Viewer,
+  entities: Record<string, TerraEntity>,
+  selectedId: string | null,
+): void {
+  const nextIds = new Set(Object.keys(entities));
+
+  // Remove deleted
+  for (const [id, entity] of managed) {
+    if (!nextIds.has(id)) {
+      viewer.entities.remove(entity);
+      managed.delete(id);
+    }
+  }
+
+  for (const entity of Object.values(entities)) {
+    const existing = managed.get(entity.id);
+    if (existing) {
+      viewer.entities.remove(existing);
+      managed.delete(entity.id);
+    }
+    const cesiumEntity = upsertCesiumEntity(viewer, entity, selectedId === entity.id);
+    managed.set(entity.id, cesiumEntity);
+  }
+}
+
+function upsertCesiumEntity(
+  viewer: Viewer,
+  entity: TerraEntity,
+  selected: boolean,
+): Entity {
+  const [lon, lat] = geometryCentroid(entity.geometry);
+  const fill = Color.fromCssColorString(entity.color).withAlpha(entity.fillOpacity);
+  const outline = Color.fromCssColorString(entity.color).withAlpha(selected ? 1 : 0.9);
+
+  if (entity.geometry.type === 'Point') {
+    return viewer.entities.add({
+      id: entity.id,
+      name: entity.name,
+      position: Cartesian3.fromDegrees(lon, lat),
+      point: {
+        pixelSize: selected ? 14 : 10,
+        color: fill,
+        outlineColor: outline,
+        outlineWidth: 2,
+        heightReference: HeightReference.CLAMP_TO_GROUND,
+      },
+      label: {
+        text: entity.name,
+        font: '14px Inter, sans-serif',
+        fillColor: Color.WHITE,
+        outlineColor: Color.BLACK,
+        outlineWidth: 3,
+        style: 2, // FILL_AND_OUTLINE
+        verticalOrigin: VerticalOrigin.BOTTOM,
+        horizontalOrigin: HorizontalOrigin.CENTER,
+        pixelOffset: new Cartesian3(0, -12, 0) as unknown as Cesium.Cartesian2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    });
+  }
+
+  // Polygon / MultiPolygon — Phase 2 will refine MultiPolygon
+  const hierarchy = polygonHierarchy(entity);
+  return viewer.entities.add({
+    id: entity.id,
+    name: entity.name,
+    polygon: {
+      hierarchy,
+      material: fill,
+      outline: true,
+      outlineColor: outline,
+      outlineWidth: selected ? 3 : 2,
+    },
+    position: Cartesian3.fromDegrees(lon, lat),
+    label: {
+      text: entity.name,
+      font: '16px Inter, sans-serif',
+      fillColor: Color.WHITE,
+      outlineColor: Color.BLACK,
+      outlineWidth: 3,
+      style: 2,
+      verticalOrigin: VerticalOrigin.CENTER,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+}
+
+function polygonHierarchy(entity: TerraEntity): Cesium.PolygonHierarchy {
+  const geom = entity.geometry;
+  if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') {
+    return new Cesium.PolygonHierarchy();
+  }
+  const ring =
+    geom.type === 'Polygon'
+      ? geom.coordinates[^0]
+      : geom.coordinates[^0]?.[^0] ?? [];
+  const positions = ring.map(([lng, lt]) => Cartesian3.fromDegrees(lng, lt));
+  return new Cesium.PolygonHierarchy(positions);
+}
+
+// Re-export namespace bit used above
+import * as Cesium from 'cesium';
+```
+
+> Phase 2 cleanup: fix label `pixelOffset` to use `Cartesian2`, and avoid remove+readd by mutating entity graphics in place.
+
+### `src/ui/layout/AppShell.tsx`
+
+```tsx
+import { GlobeView } from '@/globe/GlobeView';
+import { TopBar } from '@/ui/layout/TopBar';
+import { ToolRail } from '@/ui/layout/ToolRail';
+import { InspectorPanel } from '@/ui/layout/InspectorPanel';
+import { StatusBar } from '@/ui/layout/StatusBar';
+
+export function AppShell() {
+  return (
+    <div className="relative h-full w-full text-slate-100">
+      <GlobeView />
+      <div className="pointer-events-none absolute inset-0 flex flex-col">
+        <div className="pointer-events-auto">
+          <TopBar />
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="pointer-events-auto">
+            <ToolRail />
+          </div>
+          <div className="flex-1" />
+          <div className="pointer-events-auto">
+            <InspectorPanel />
+          </div>
+        </div>
+        <div className="pointer-events-auto">
+          <StatusBar />
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+
+### `src/ui/layout/TopBar.tsx`
+
+```tsx
+import { useWorldStore } from '@/state/worldStore';
+
+export function TopBar() {
+  const worldName = useWorldStore((s) => s.world.name);
+  const loadDemo = useWorldStore((s) => s.loadDemo);
+
+  return (
+    <header className="flex items-center gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 backdrop-blur-md">
+      <div className="text-sm font-semibold tracking-wide text-teal-300">
+        Terraforge
+      </div>
+      <div className="text-xs text-slate-400">{worldName}</div>
+      <div className="flex-1" />
+      <input
+        type="search"
+        placeholder="Search places… (Phase 5)"
+        disabled
+        className="w-40 rounded-lg border border-white/10 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-300 opacity-60 sm:w-64"
+        aria-label="Search places"
+      />
+      <button
+        type="button"
+        onClick={loadDemo}
+        className="rounded-lg bg-teal-500/20 px-3 py-1.5 text-xs font-medium text-teal-200 hover:bg-teal-500/30"
+      >
+        Load demo
+      </button>
+    </header>
+  );
+}
+```
+
+
+### `src/ui/layout/ToolRail.tsx`
+
+```tsx
+import { useUiStore } from '@/state/uiStore';
+import type { ToolMode } from '@/entities/types';
+import { IconButton } from '@/ui/common/IconButton';
+
+const tools: { id: ToolMode; label: string; enabled: boolean }[] = [
+  { id: 'select', label: 'Select', enabled: true },
+  { id: 'pan', label: 'Pan', enabled: true },
+  { id: 'drawPolygon', label: 'Draw', enabled: false },
+  { id: 'editVertices', label: 'Edit', enabled: false },
+  { id: 'placePoint', label: 'City', enabled: false },
+];
+
+export function ToolRail() {
+  const tool = useUiStore((s) => s.tool);
+  const setTool = useUiStore((s) => s.setTool);
+
+  return (
+    <aside className="m-2 flex flex-col gap-1 rounded-2xl border border-white/10 bg-slate-950/70 p-2 backdrop-blur-md">
+      {tools.map((t) => (
+        <IconButton
+          key={t.id}
+          label={t.label}
+          active={tool === t.id}
+          disabled={!t.enabled}
+          onClick={() => t.enabled && setTool(t.id)}
+        />
+      ))}
+    </aside>
+  );
+}
+```
+
+
+### `src/ui/layout/InspectorPanel.tsx`
+
+```tsx
+import { useWorldStore } from '@/state/worldStore';
+
+export function InspectorPanel() {
+  const selectedId = useWorldStore((s) => s.selectedId);
+  const entity = useWorldStore((s) =>
+    selectedId ? s.world.entities[selectedId] : null,
+  );
+
+  return (
+    <aside className="m-2 hidden w-72 flex-col rounded-2xl border border-white/10 bg-slate-950/70 p-3 backdrop-blur-md md:flex">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        Inspector
+      </h2>
+      {!entity ? (
+        <p className="text-sm text-slate-500">
+          Select a place on the globe, or load the demo world.
+        </p>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <div>
+            <div className="text-xs text-slate-500">Name</div>
+            <div className="font-medium text-slate-100">{entity.name}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Type</div>
+            <div className="capitalize text-slate-200">{entity.type}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-500">Description</div>
+            <p className="text-slate-300">{entity.description || '—'}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-slate-500">Color</div>
+            <span
+              className="inline-block h-4 w-4 rounded-full border border-white/20"
+              style={{ background: entity.color }}
+            />
+            <span className="text-slate-400">{entity.color}</span>
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+```
+
+
+### `src/ui/layout/StatusBar.tsx`
+
+```tsx
+import { useWorldStore } from '@/state/worldStore';
+import { useUiStore } from '@/state/uiStore';
+import { history } from '@/state/history/HistoryStack';
+
+export function StatusBar() {
+  const count = useWorldStore((s) => Object.keys(s.world.entities).length);
+  const tool = useUiStore((s) => s.tool);
+
+  return (
+    <footer className="flex items-center gap-3 border-t border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-slate-400 backdrop-blur-md">
+      <span className="capitalize">Tool: {tool}</span>
+      <span>·</span>
+      <span>Places: {count}</span>
+      <div className="flex-1" />
+      <button
+        type="button"
+        className="rounded px-2 py-0.5 hover:bg-white/10"
+        onClick={() => history.undo()}
+      >
+        Undo
+      </button>
+      <button
+        type="button"
+        className="rounded px-2 py-0.5 hover:bg-white/10"
+        onClick={() => history.redo()}
+      >
+        Redo
+      </button>
+    </footer>
+  );
+}
+```
+
+
+### `src/ui/common/IconButton.tsx`
+
+```tsx
+interface Props {
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}
+
+export function IconButton({ label, active, disabled, onClick }: Props) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={[
+        'min-h-11 min-w-11 rounded-xl px-2 text-xs font-medium transition',
+        active
+          ? 'bg-teal-500/30 text-teal-100 ring-1 ring-teal-400/50'
+          : 'bg-white/5 text-slate-200 hover:bg-white/10',
+        disabled ? 'cursor-not-allowed opacity-40' : '',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  );
+}
+```
+
+
+### `src/App.tsx`
+
+```tsx
+import { AppShell } from '@/ui/layout/AppShell';
+
+export default function App() {
+  return <AppShell />;
+}
+```
+
+
+### `src/main.tsx`
+
+```tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
+```
+
+
+### `public/samples/demo-world.json`
+
+```json
+{
+  "id": "demo-aetherra",
+  "name": "Aetherra Demo",
+  "version": 1,
+  "camera": {
+    "lon": 0,
+    "lat": 15,
+    "height": 9000000,
+    "heading": 0,
+    "pitch": -90
+  },
+  "entities": {
+    "01DEMOCONTINENT000000000000": {
+      "id": "01DEMOCONTINENT000000000000",
+      "type": "continent",
+      "name": "Aetherra",
+      "description": "The first land — a playground continent.",
+      "tags": ["demo", "fantasy"],
+      "color": "#38bdf8",
+      "fillOpacity": 0.4,
+      "parentId": null,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-25, -12],
+            [25, -12],
+            [28, 8],
+            [-22, 14],
+            [-25, -12]
+          ]
+        ]
+      },
+      "images": [],
+      "properties": {},
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    "01DEMOCITY00000000000000001": {
+      "id": "01DEMOCITY00000000000000001",
+      "type": "city",
+      "name": "Lumenport",
+      "description": "A harbor city of glass bridges.",
+      "tags": ["demo", "city"],
+      "color": "#fb7185",
+      "fillOpacity": 1,
+      "parentId": "01DEMOCONTINENT000000000000",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [5, 2]
+      },
+      "images": [],
+      "properties": { "population": 120000 },
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  }
+}
+```
+
+
+### Drawing stubs (Phase 3 — empty but typed)
+
+```ts
+// src/drawing/types.ts
+import type { ToolMode } from '@/entities/types';
+
+export interface DrawToolContext {
+  mode: ToolMode;
+  onCompletePolygon: (ring: [number, number][]) => void;
+  onPlacePoint: (lon: number, lat: number) => void;
+  onCancel: () => void;
+}
+
+export interface DrawTool {
+  readonly id: ToolMode;
+  activate(ctx: DrawToolContext): void;
+  deactivate(): void;
+}
+```
+
+```ts
+// src/drawing/DrawPolygonTool.ts
+import type { DrawTool, DrawToolContext } from './types';
+
+/** Phase 3: implement screen→cartographic vertex capture */
+export class DrawPolygonTool implements DrawTool {
+  readonly id = 'drawPolygon' as const;
+  private ctx: DrawToolContext | null = null;
+
+  activate(ctx: DrawToolContext): void {
+    this.ctx = ctx;
+  }
+
+  deactivate(): void {
+    this.ctx = null;
+  }
+}
+```
+
+(Same pattern for `EditVerticesTool.ts`, `PlacePointTool.ts`, `DrawController.ts` — activate/deactivate stubs only.)
+
+### Persistence / search stubs
+
+```ts
+// src/persistence/idb.ts
+/** Phase 5: open IDB, save/load World + image blobs */
+export async function saveWorld(_worldId: string, _data: unknown): Promise<void> {
+  throw new Error('Not implemented — Phase 5');
+}
+
+export async function loadWorld(_worldId: string): Promise<unknown> {
+  throw new Error('Not implemented — Phase 5');
+}
+```
+
+```ts
+// src/search/searchIndex.ts
+/** Phase 5: MiniSearch wrapper */
+export function rebuildSearchIndex(_entities: unknown): void {
+  // no-op until Phase 5
+}
+
+export function searchPlaces(_query: string): { id: string; name: string }[] {
+  return [];
+}
+```
+
+
+***
+
+## 6. `docs/DATA_MODEL.md` (short)
+
+```markdown
+# Data model
+
+- World.version must be `1`
+- Entity ids: ULID or UUID string
+- geometry: GeoJSON CRS84 (lon, lat degrees), WGS84
+- Polygon rings: exterior closed, CCW preferred
+- parentId: null for top-level continents/islands
+- colors: #RRGGBB
+- images[].blobKey: IndexedDB key (Phase 5)
+
+See `src/entities/types.ts` as source of truth.
+```
+
+
+## 7. `docs/UX_FLOWS.md` (short)
+
+```markdown
+# UX flows
+
+## Draw continent (Phase 3)
+1. Tap Draw
+2. Tap 3+ points on globe
+3. Tap Close (or double-tap)
+4. Inspector focuses name field
+5. Enter name → entity commits via AddEntityCommand
+
+## Edit
+1. Select polygon → Edit
+2. Drag vertices; midpoints insert
+3. Done returns to Select
+
+## Search (Phase 5)
+1. Type in top bar
+2. Arrow keys move result
+3. Enter flies camera + selects
+```
+
+
+## 8. `docs/DEMO.md`
+
+```markdown
+# Demo log
+
+## Phase 0
+1. `npm install && npm run dev`
+2. Dark UI chrome over empty teal globe
+3. Click **Load demo** → Aetherra polygon + label (after Phase 2 wire-up; Phase 0 may only show globe)
+```
+
+
+## 9. `README.md`
+
+```markdown
+# Terraforge
+
+Creative world-building globe (PWA). Draw continents, regions, and cities in the browser.
+
+## Quick start
+
+```bash
+npm create vite@latest . -- --template react-ts   # if folder empty
+npm install cesium vite-plugin-cesium zustand immer @turf/turf @turf/centroid ulid
+npm install -D tailwindcss postcss autoprefixer @types/geojson
+npx tailwindcss init -p
+npm run dev
+```
+
+See `PROJECT_PLAN.md`, `docs/AGENT_RULES.md`, and `CHECKLIST.md`.
+
+## Scripts
+
+- `npm run dev` — local dev
+- `npm run build` — production
+- `npm run preview` — preview build
+- `npm test` — vitest (when configured)
+
+
+## License notes
+
+No Google Earth imagery. Stylized globe only. User-generated content stays local unless they export/share.
+
+```
+
+***
+
+## 10. Bootstrap prompt (paste into IDE agent)
+
+```text
+Implement Terraforge Phase 0 exactly.
+
+1. Read and obey docs/AGENT_RULES.md and CHECKLIST.md (create them from the user message if missing).
+2. Scaffold Vite + React + TypeScript if needed.
+3. Install: cesium, vite-plugin-cesium, zustand, immer, @turf/turf, @turf/centroid, ulid, tailwindcss, postcss, autoprefixer.
+4. Configure vite-plugin-cesium, @ path alias, Tailwind, strict TS.
+5. Create the full folder tree and stub modules as specified (CesiumViewer singleton WITHOUT ion token, solid #0c4a6e globe, AppShell UI chrome, worldStore, commands, entitySync, validate, factory sample continent, demo-world.json).
+6. Drawing/persistence/search are stubs only — do not implement Phase 3–5.
+7. Fix any TypeScript errors so `npm run dev` shows: dark shell + stylized globe + Load demo button.
+8. On Load demo, put sample continent into the store and sync to Cesium (minimal Phase 2 render path is OK if needed for demo).
+9. Update CHECKLIST.md Phase 0 boxes to done.
+10. Do not add Google/Mapbox tiles, ion-required imagery, or extra features.
+
+After finished, print: how to run, any deviations, and the next agent prompt for Phase 1 camera polish + pick-to-select.
+```
+
+
+***
+
+## 11. Next agent prompt (Phase 1 — after bootstrap works)
+
+```text
+Phase 1 only per PROJECT_PLAN + AGENT_RULES.
+
+- Improve camera: inertia, min/max zoom, touch tilt; persist camera into worldStore.camera on moveEnd.
+- Wire ScreenSpaceEventHandler left-click pick → worldStore.select(entityId); empty click clears selection.
+- Fix entitySync to mutate in place instead of remove+readd when possible; use Cartesian2 for label offsets.
+- Highlight selected polygon (brighter outline).
+- Mobile: tool rail becomes bottom bar under md breakpoint; inspector becomes bottom sheet.
+- Add docs/DEMO.md steps for Phase 1.
+- Mark Phase 1 checklist items.
+- No drawing tools yet.
+```
+
+
+***
+
+### What you should do now
+
+1. Create an empty folder `terraforge`.
+2. Paste **Bootstrap prompt** (§10) into your IDE agent with this message (or drop the markdown files in first).
+3. Run `npm run dev` on desktop, then your phone on the same LAN.
+4. Only then send the **Phase 1** prompt.
+
+If you want, next message I can add a **Vitest starter** (`validate.test.ts` + `commands.test.ts`) and a **Playwright smoke spec** skeleton so testing is ready before Phase 3 drawing.
+<span style="display:none">[^10][^11][^12][^13][^14][^15][^2][^3][^4][^5][^6][^7][^8][^9]</span>
+
+<div align="center">⁂</div>
+
+[^1]: https://dev.to/jfayot/zero-config-cesiumjs-in-vite-introducing-vite-plugin-cesium-engine-1daa
+
+[^2]: https://cesium.com/learn/cesiumjs-learn/build-a-flight-simulator-with-cesiumjs-using-ai/
+
+[^3]: https://dev.to/zahidkhan-xen/from-cra-to-lightning-fast-vite-with-cesium-my-real-world-migration-experience-21fe
+
+[^4]: https://community.cesium.com/t/is-there-a-good-way-to-use-cesium-with-vite/27545
+
+[^5]: https://resium.reearth.io/installation
+
+[^6]: https://github.com/nshen/vite-plugin-cesium
+
+[^7]: https://community.cesium.com/t/packing-a-cesium-project-as-a-npm/28761
+
+[^8]: https://medium.com/@robinviktorsson/complete-guide-to-setting-up-react-with-typescript-and-vite-2025-468f6556aaf2
+
+[^9]: https://cloud.tencent.com/developer/article/2361368
+
+[^10]: https://github.com/s3xysteak/vite-plugin-cesium-build
+
+[^11]: https://blog.csdn.net/Liyong_liyong/article/details/136764097
+
+[^12]: https://github.com/jfayot/vite-plugin-cesium-engine
+
+[^13]: https://github.com/mivui/vite-plugin-cesiumjs
+
+[^14]: https://github.com/CesiumGS/cesium-vite-example
+
+[^15]: https://classic.yarnpkg.com/en/package/vite-plugin-cesium-build
+
