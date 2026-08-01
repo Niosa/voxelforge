@@ -11,6 +11,7 @@ import {
   setFantasyWorldFlag,
   setGlobeImageryStyle,
   getCurrentImageryStyle,
+  updateFantasyImageryEntities,
   getViewer,
 } from '@/globe/CesiumViewer';
 import { syncEntitiesToCesium } from '@/globe/entitySync';
@@ -27,18 +28,10 @@ import { WalkOverlay } from '@/walk/WalkOverlay';
  *  2. Legacy hard-coded id 'earth-preset' (initial default world).
  *  3. Name heuristic for worlds imported/created outside loadSampleWorld.
  */
-function isFantasyWorld(world: { id: string; name: string; properties?: Record<string, any> }): boolean {
-  const src = world.properties?.sourcePresetId as string | undefined;
-  if (src !== undefined) {
-    // Only the 'earth' preset is a real-Earth world.
-    return src !== 'earth';
-  }
-  // Fallback for the initial built-in earth world and any world created
-  // before sourcePresetId was introduced.
-  return (
-    world.id !== 'earth-preset' &&
-    !world.name.toLowerCase().includes('real earth')
-  );
+function isFantasyWorld(_world?: { id: string; name: string; properties?: Record<string, any> }): boolean {
+  // All worlds in Voxelforge are custom fantasy / procedurally rendered worlds.
+  // Real Earth satellite map overlays are deprecated.
+  return true;
 }
 
 export function GlobeView() {
@@ -61,15 +54,18 @@ export function GlobeView() {
     if (!world) return;
     const fantasy = isFantasyWorld(world);
     setFantasyWorldFlag(fantasy);
-    setGlobeImageryStyle(
-      getCurrentImageryStyle(),
-      world.entities,
-      world.properties?.theme ?? 'medieval',
-    );
     const v = getViewer();
     if (v) {
+      v.entities.removeAll();
+      setGlobeImageryStyle(
+        getCurrentImageryStyle(),
+        world.entities,
+        world.properties?.theme ?? 'medieval',
+      );
       syncEntitiesToCesium(v, world.entities, selectedId);
+      updateFantasyImageryEntities(world.entities);
       flyToWorldCamera(v, world);
+      v.scene.requestRender();
     }
   }, [activeWorldId]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -7,7 +7,6 @@ import {
   Terrain,
   Math as CesiumMath,
   SceneMode,
-  UrlTemplateImageryProvider,
   SingleTileImageryProvider,
   createOsmBuildingsAsync,
   createGooglePhotorealistic3DTileset,
@@ -546,7 +545,7 @@ export type ImageryStyle =
 
 let viewer: Viewer | null = null;
 let currentImageryStyle: ImageryStyle = 'satellite';
-let isFantasyWorld = false;
+let isFantasyWorld = true;
 let isTerrain3DActive = true;
 let isLightingActive = false;
 
@@ -1202,104 +1201,28 @@ export function setGlobeImageryStyle(
   try {
     viewer.imageryLayers.removeAll();
 
-    if (isFantasyWorld) {
-      if (style === 'satellite') {
-        const activeEntities = entities || {};
+    if (style === 'stylized') {
+      const url = getParchmentTextureUrl();
+      if (url) {
         try {
-          viewer.imageryLayers.addImageryProvider(
-            new ProceduralFantasyImageryProvider(activeEntities, theme) as any,
-          );
-        } catch (e) {
-          console.warn('Fantasy imagery provider failed, using solid color:', e);
-        }
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
-      } else {
-        const url = getParchmentTextureUrl();
-        if (url) {
-          try {
-            viewer.imageryLayers.addImageryProvider(
-              new SingleTileImageryProvider({ url }),
-            );
-          } catch (e) {
-            console.warn('Parchment texture failed:', e);
-          }
-        }
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
-      }
-    } else {
-      if (style === 'satellite') {
-        try {
-          viewer.imageryLayers.addImageryProvider(
-            new UrlTemplateImageryProvider({
-              url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-              maximumLevel: 19,
-              credit: '© Esri World Imagery',
-            }),
-          );
-        } catch (e) {
-          console.warn('Esri imagery provider failed:', e);
-        }
-        try {
-          viewer.imageryLayers.addImageryProvider(
-            new UrlTemplateImageryProvider({
-              url: 'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-              maximumLevel: 19,
-              credit: '© Esri Reference Boundaries & Places',
-            }),
-          );
-        } catch (e) {
-          console.warn('Esri boundaries provider failed:', e);
-        }
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#0a1520');
-      } else if (style === 'osm') {
-        try {
-          viewer.imageryLayers.addImageryProvider(
-            new UrlTemplateImageryProvider({
-              url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              maximumLevel: 19,
-              credit: '© OpenStreetMap contributors',
-            }),
-          );
-        } catch (e) {
-          console.warn('OSM imagery provider failed:', e);
-        }
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#1a2744');
-      } else if (style === 'opentopo') {
-        viewer.imageryLayers.addImageryProvider(
-          new UrlTemplateImageryProvider({
-            url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
-            maximumLevel: 17,
-            credit: '© OpenTopoMap contributors',
-          }),
-        );
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#1a2744');
-      } else if (style === 'carto-light') {
-        viewer.imageryLayers.addImageryProvider(
-          new UrlTemplateImageryProvider({
-            url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-            maximumLevel: 19,
-            credit: '© CARTO, © OpenStreetMap',
-          }),
-        );
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#1e293b');
-      } else if (style === 'carto-dark') {
-        viewer.imageryLayers.addImageryProvider(
-          new UrlTemplateImageryProvider({
-            url: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            maximumLevel: 19,
-            credit: '© CARTO, © OpenStreetMap',
-          }),
-        );
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#090d16');
-      } else {
-        const url = getParchmentTextureUrl();
-        if (url) {
           viewer.imageryLayers.addImageryProvider(
             new SingleTileImageryProvider({ url }),
           );
+        } catch (e) {
+          console.warn('Parchment texture failed:', e);
         }
-        viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
       }
+      viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
+    } else {
+      const activeEntities = entities || {};
+      try {
+        viewer.imageryLayers.addImageryProvider(
+          new ProceduralFantasyImageryProvider(activeEntities, theme) as any,
+        );
+      } catch (e) {
+        console.warn('Fantasy imagery provider failed, using solid color:', e);
+      }
+      viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
     }
   } catch (err) {
     console.warn('Imagery provider update warning:', err);
@@ -1384,13 +1307,8 @@ export function createTerraforgeViewer(container: HTMLElement): Viewer {
 
   // Set initial imagery layer & load world borders according to active world
   const activeWorld = useWorldStore.getState().world;
-  const isEarth = activeWorld.id === 'earth-preset' || activeWorld.name.toLowerCase().includes('real earth');
-  setFantasyWorldFlag(!isEarth);
-  if (!isEarth) {
-    setGlobeImageryStyle('satellite', activeWorld.entities, activeWorld.properties?.theme || 'medieval');
-  } else {
-    setGlobeImageryStyle('satellite');
-  }
+  setFantasyWorldFlag(true);
+  setGlobeImageryStyle('satellite', activeWorld.entities, activeWorld.properties?.theme || 'medieval');
   syncWorldBordersData(viewer);
 
   viewer.camera.setView({

@@ -7,7 +7,6 @@ import { immer } from 'zustand/middleware/immer';
 import { ulid } from 'ulid';
 import type { TerraEntity, World, ToolMode } from '@/entities/types';
 import {
-  createEarthWorld,
   createMiddleEarthWorld,
   createTemplateWorld,
 } from '@/entities/samples';
@@ -41,11 +40,6 @@ function buildBlankWorld(): World {
   };
 }
 
-function buildEarthWorld(): World {
-  const w = createEarthWorld();
-  return { ...w, id: 'earth-preset' };
-}
-
 function buildMiddleEarthWorld(): World {
   const w = createMiddleEarthWorld();
   return { ...w, id: 'middle-earth-preset' };
@@ -63,13 +57,13 @@ function buildTemplateWorld(): World {
 
 // Keyed by the short string the TopBar/WorldManager sends to loadSampleWorld.
 const PRESET_BUILDERS: Record<string, () => World> = {
-  earth: buildEarthWorld,
+  earth: buildMiddleEarthWorld,
   'middle-earth': buildMiddleEarthWorld,
   demo: buildDemoWorld,
   template: buildTemplateWorld,
   blank: buildBlankWorld,
   // Legacy: also accept the stable IDs themselves
-  'earth-preset': buildEarthWorld,
+  'earth-preset': buildMiddleEarthWorld,
   'middle-earth-preset': buildMiddleEarthWorld,
   'demo-preset': buildDemoWorld,
   'template-preset': buildTemplateWorld,
@@ -86,8 +80,10 @@ function canonicalPresetKey(presetId: string): string {
 
 /** Shown in WorldManagerModal preset buttons. */
 export const SAMPLE_WORLD_PRESETS: SampleWorldPreset[] = [
-  { id: 'middle-earth', name: '🗡️ Middle-earth (Arda)', description: 'Tolkien's Arda' },
+  { id: 'middle-earth', name: '🗡️ Middle-earth (Arda)', description: "Tolkien's Arda" },
   { id: 'template', name: '🚀 Template Sci-Fi World', description: 'Sci-fi starter' },
+  { id: 'demo', name: '✨ Demo Planet', description: 'Pre-populated showcase' },
+  { id: 'blank', name: '➕ Blank Globe', description: 'Empty canvas' },
 ];
 
 interface WorldStore {
@@ -123,7 +119,7 @@ interface WorldStore {
   redo(): void;
 }
 
-const _defaultWorld = buildEarthWorld();
+const _defaultWorld = buildMiddleEarthWorld();
 const _initialWorlds: Record<string, World> = {
   [_defaultWorld.id]: _defaultWorld,
 };
@@ -202,18 +198,22 @@ export const useWorldStore = create<WorldStore>()(
 
     createWorld(name, seed) {
       const id = ulid();
+      const now = Date.now();
+      const newWorld: World = {
+        id,
+        name,
+        seed: seed ?? Math.floor(Math.random() * 999_999),
+        entities: {},
+        camera: { lon: 0, lat: 20, height: 12_000_000, heading: 0, pitch: -90 },
+        version: 1,
+        voxelChunks: {},
+        updatedAt: now,
+      };
       set((s) => {
-        s.worlds[id] = {
-          id,
-          name,
-          seed: seed ?? Math.floor(Math.random() * 999_999),
-          entities: {},
-          camera: { lon: 0, lat: 20, height: 12_000_000, heading: 0, pitch: -90 },
-          version: 1,
-          voxelChunks: {},
-        };
+        s.worlds[id] = newWorld;
         s.activeWorldId = id;
       });
+      saveWorldToDB(newWorld).catch(() => {});
       return id;
     },
 
@@ -228,21 +228,33 @@ export const useWorldStore = create<WorldStore>()(
     },
 
     setActiveWorld(id) {
-      set((s) => { s.activeWorldId = id; });
+      set((s) => {
+        s.activeWorldId = id;
+        const w = s.worlds[id];
+        if (w) w.updatedAt = Date.now();
+      });
+      const w = get().worlds[id];
+      if (w) saveWorldToDB(w).catch(() => {});
     },
 
     setWorld(world) {
       set((s) => {
-        s.worlds[world.id] = world;
+        s.worlds[world.id] = { ...world, updatedAt: Date.now() };
         s.activeWorldId = world.id;
       });
+      saveWorldToDB(world).catch(() => {});
     },
 
     patchWorld(id, recipe) {
       set((s) => {
         const w = s.worlds[id];
-        if (w) recipe(w);
+        if (w) {
+          recipe(w);
+          w.updatedAt = Date.now();
+        }
       });
+      const updated = get().worlds[id];
+      if (updated) saveWorldToDB(updated).catch(() => {});
     },
 
     updateWorldProperties(props) {
@@ -252,17 +264,30 @@ export const useWorldStore = create<WorldStore>()(
         w.properties = { ...w.properties, ...props };
         w.updatedAt = Date.now();
       });
+      const w = get().world;
+      if (w) saveWorldToDB(w).catch(() => {});
     },
 
     renameActiveWorld(name) {
       set((s) => {
         const w = s.worlds[s.activeWorldId!];
-        if (w) w.name = name;
+        if (w) {
+          w.name = name;
+          w.updatedAt = Date.now();
+        }
       });
+      const w = get().world;
+      if (w) saveWorldToDB(w).catch(() => {});
     },
 
     async saveActiveWorld() {
-      const w = get().world;
+      const activeId = get().activeWorldId;
+      if (!activeId) return;
+      set((s) => {
+        const w = s.worlds[activeId];
+        if (w) w.updatedAt = Date.now();
+      });
+      const w = get().worlds[activeId];
       if (w) await saveWorldToDB(w);
     },
 
@@ -287,7 +312,10 @@ export const useWorldStore = create<WorldStore>()(
           for (const w of loaded) {
             st.worlds[w.id] = w;
           }
-          st.activeWorldId = most_recent.id;
+          // Preserve current user selection if user already selected/created a world
+          if (!st.activeWorldId || st.activeWorldId === _defaultWorld.id || !st.worlds[st.activeWorldId]) {
+            st.activeWorldId = most_recent.id;
+          }
         });
       }).catch(() => { /* persistence not available */ });
     },
@@ -298,26 +326,32 @@ export const useWorldStore = create<WorldStore>()(
         console.warn('Unknown preset:', presetId);
         return;
       }
+      const canonicalKey = canonicalPresetKey(presetId);
+      const stableId = `${canonicalKey}-preset`;
+
+      // Check if preset world already exists in state
+      const existing = get().worlds[stableId] || get().worlds[presetId];
+      if (existing) {
+        get().setActiveWorld(existing.id);
+        return;
+      }
+
       const preset = builder();
-      // Give the copy a fresh ULID so it doesn't clobber the keyed preset
-      const id = ulid();
-      // Stamp the canonical preset key so GlobeView can identify the world
-      // type even after the id has been replaced with a fresh ULID.
-      const sourcePresetId = canonicalPresetKey(presetId);
+      const now = Date.now();
       const newWorld: World = {
         ...JSON.parse(JSON.stringify(preset)),
-        id,
-        name: preset.name === 'Blank Globe' ? 'Blank Globe' : `${preset.name} (copy)`,
-        voxelChunks: {},
+        id: stableId,
+        updatedAt: now,
         properties: {
           ...(preset.properties ?? {}),
-          sourcePresetId,
+          sourcePresetId: canonicalKey,
         },
       };
       set((s) => {
-        s.worlds[id] = newWorld;
-        s.activeWorldId = id;
+        s.worlds[stableId] = newWorld;
+        s.activeWorldId = stableId;
       });
+      saveWorldToDB(newWorld).catch(() => {});
     },
 
     setTool(tool) {

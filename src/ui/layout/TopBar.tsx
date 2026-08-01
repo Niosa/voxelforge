@@ -386,47 +386,33 @@ export function TopBar() {
           <label htmlFor="globe-imagery-select" className="sr-only">Select Imagery Style</label>
           <select id="globe-imagery-select" onChange={handleSelectImagery} value={imageryStyle}
             className="rounded-xl border border-white/15 bg-slate-900/90 px-2.5 py-1.5 text-xs font-medium text-slate-300 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
-            {isFantasy ? (
-              <>
-                <option value="satellite">🛰️ Fantasy Orbital Satellite</option>
-                <option value="stylized">📜 Antique Vintage Parchment</option>
-              </>
-            ) : (
-              <>
-                <option value="satellite">🛰️ Satellite (Esri)</option>
-                <option value="osm">🌐 Map Tiles (OSM)</option>
-                <option value="opentopo">🏔️ Topo Map (OpenTopo)</option>
-                <option value="carto-light">🗺️ Carto Voyager</option>
-                <option value="carto-dark">🌃 Carto Dark Matter</option>
-                <option value="stylized">🎨 Vintage Parchment</option>
-              </>
-            )}
+            <option value="satellite">🛰️ Fantasy Orbital Satellite</option>
+            <option value="stylized">📜 Antique Vintage Parchment</option>
           </select>
 
-          {isFantasy && (
-            <select value={worldTheme} onChange={handleSelectTheme}
-              className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-teal-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
-              <option value="medieval">🏰 Medieval Fantasy</option>
-              <option value="modern">🏙️ Modern Sci-Fi</option>
-            </select>
-          )}
+          <select value={worldTheme} onChange={handleSelectTheme}
+            className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-teal-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
+            <option value="medieval">🏰 Medieval Fantasy</option>
+            <option value="modern">🏙️ Modern Sci-Fi</option>
+          </select>
 
           <select id="world-preset-select" onChange={handleSelectSample}
             value={
-              world.id === 'earth-preset' ? 'earth' :
-              world.id === 'middle-earth-preset' || world.name.includes('Middle-earth') ? 'middle-earth' :
-              world.id === 'demo-preset' || world.name.includes('Demo') ? 'demo' :
-              world.id === 'template-preset' || world.name.includes('Template') ? 'template' :
-              world.id === 'blank-preset' || world.name.includes('Blank') ? 'blank' : ''
+              (world.properties?.sourcePresetId as string) ||
+              (world.id === 'middle-earth-preset' || world.name.includes('Middle-earth') ? 'middle-earth' :
+               world.id === 'demo-preset' || world.name.includes('Demo') ? 'demo' :
+               world.id === 'template-preset' || world.name.includes('Template') ? 'template' :
+               world.id === 'blank-preset' || world.name === 'Blank Globe' || world.name.includes('Blank') ? 'blank' : '')
             }
             className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
-            {!['earth-preset','middle-earth-preset','demo-preset','template-preset','blank-preset'].includes(world.id) && (
+            {!['middle-earth','template','demo','blank','middle-earth-preset','demo-preset','template-preset','blank-preset'].includes(
+              (world.properties?.sourcePresetId as string) || world.id
+            ) && (
               <option value="" disabled hidden>🗺️ {world.name}</option>
             )}
-            <option value="earth">🌍 Real Earth</option>
             <option value="middle-earth">🗡️ Middle-earth (Arda)</option>
-            <option value="demo">✨ Demo Planet</option>
             <option value="template">🚀 Template Sci-Fi World</option>
+            <option value="demo">✨ Demo Planet</option>
             <option value="blank">➕ Blank Globe</option>
           </select>
 

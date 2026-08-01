@@ -33,8 +33,8 @@ const steps = [
     content:
       'Explore pre-built worlds right away! Use the top bar dropdown to instant-switch between worlds:',
     tips: [
-      '🌍 Real Earth: Earth’s continents (North America, Europe, Asia, etc.) & world capitals',
       '🗡️ Middle-earth (Arda): Gondor, Mordor, Rohan, Rivendell, and Minas Tirith',
+      '🚀 Template Sci-Fi World: Sci-fi starter with futuristic settlements',
       '✨ Demo Planet: Playground continent for testing',
     ],
     actionPreset: true,
@@ -115,17 +115,17 @@ export function TutorialModal() {
             <div className="my-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => loadSampleWorld('earth')}
-                className="rounded-xl border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30 transition"
-              >
-                🌍 Load Real Earth
-              </button>
-              <button
-                type="button"
                 onClick={() => loadSampleWorld('middle-earth')}
                 className="rounded-xl border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/30 transition"
               >
                 🗡️ Load Middle-earth
+              </button>
+              <button
+                type="button"
+                onClick={() => loadSampleWorld('template')}
+                className="rounded-xl border border-teal-500/40 bg-teal-500/20 px-3 py-1.5 text-xs font-semibold text-teal-200 hover:bg-teal-500/30 transition"
+              >
+                🚀 Load Sci-Fi Starter
               </button>
             </div>
           )}

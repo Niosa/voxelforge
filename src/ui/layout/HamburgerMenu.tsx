@@ -193,7 +193,7 @@ export function HamburgerMenu() {
                 onChange={handleSelectBorderStyle}
                 className="w-full rounded-xl border border-white/15 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 focus:border-teal-400 focus:outline-none cursor-pointer"
               >
-                <option value="google-earth">🌍 Google Earth Classic (Pale White)</option>
+                <option value="google-earth">✨ Classic Bold Outline (Pale Yellow)</option>
                 <option value="glowing-neon">⚡ Glowing Neon Cyan</option>
                 <option value="subtle-white">🤍 Subtle Faint White</option>
                 <option value="vintage-ink">📜 Vintage Ink Charcoal</option>

@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { useWorldStore } from '@/state/worldStore';
 import { SAMPLE_WORLD_PRESETS } from '@/state/worldStore';
-import { flyToEntity } from '@/globe/camera';
-import { getViewer } from '@/globe/CesiumViewer';
-import { syncEntitiesToCesium } from '@/globe/entitySync';
 
 interface Props {
   isOpen: boolean;
@@ -12,7 +9,6 @@ interface Props {
 
 export function WorldManagerModal({ isOpen, onClose }: Props) {
   const activeWorld = useWorldStore((s) => s.world);
-  const setWorld = useWorldStore((s) => s.setWorld);
   const loadSampleWorld = useWorldStore((s) => s.loadSampleWorld);
   const worlds = useWorldStore((s) => s.worlds);
   const setActiveWorld = useWorldStore((s) => s.setActiveWorld);
@@ -35,6 +31,7 @@ export function WorldManagerModal({ isOpen, onClose }: Props) {
     if (!newName.trim()) return;
     createWorld(newName.trim());
     setNewName('');
+    onClose();
   };
 
   const handleRename = (id: string) => {
@@ -62,15 +59,8 @@ export function WorldManagerModal({ isOpen, onClose }: Props) {
 
   const handleSwitch = (id: string) => {
     setActiveWorld(id);
-    const viewer = getViewer();
-    const w = worlds[id];
-    if (viewer && w) {
-      syncEntitiesToCesium(viewer, w.entities, null);
-    }
     onClose();
   };
-
-  void setWorld; void flyToEntity;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -141,18 +131,6 @@ export function WorldManagerModal({ isOpen, onClose }: Props) {
                 {preset.name}
               </button>
             ))}
-            <button onClick={() => handleCreateNew('earth')}
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-teal-500/10 hover:text-teal-200 hover:border-teal-500/30 transition">
-              🌍 Real Earth
-            </button>
-            <button onClick={() => handleCreateNew('middle-earth')}
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-teal-500/10 hover:text-teal-200 hover:border-teal-500/30 transition">
-              🗡️ Middle-earth
-            </button>
-            <button onClick={() => handleCreateNew('blank')}
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-teal-500/10 hover:text-teal-200 hover:border-teal-500/30 transition">
-              ➕ Blank Globe
-            </button>
           </div>
         </div>
       </div>

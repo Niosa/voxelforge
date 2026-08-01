@@ -270,15 +270,8 @@ export function syncEntitiesToCesium(
     .sort((a, b) => b.area - a.area)
     .forEach((entry, idx) => zRankById.set(entry.id, idx));
 
-  if (managed.size > 0 && nextIds.size > 0) {
-    let hasIntersection = false;
-    for (const id of nextIds) {
-      if (managed.has(id)) {
-        hasIntersection = true;
-        break;
-      }
-    }
-    if (!hasIntersection) {
+  if (managed.size > 0) {
+    if (nextIds.size === 0) {
       for (const record of managed.values()) {
         for (const e of record.cesiumEntities) {
           viewer.entities.remove(e);
@@ -286,6 +279,23 @@ export function syncEntitiesToCesium(
       }
       managed.clear();
       contentChanged = true;
+    } else {
+      let hasIntersection = false;
+      for (const id of nextIds) {
+        if (managed.has(id)) {
+          hasIntersection = true;
+          break;
+        }
+      }
+      if (!hasIntersection) {
+        for (const record of managed.values()) {
+          for (const e of record.cesiumEntities) {
+            viewer.entities.remove(e);
+          }
+        }
+        managed.clear();
+        contentChanged = true;
+      }
     }
   }
 
