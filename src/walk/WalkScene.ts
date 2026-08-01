@@ -3,13 +3,15 @@
  * to a geodetic position on the Cesium globe.
  */
 
-import Noa from 'noa-engine';
+// noa-engine is CommonJS — use namespace import so Rollup can resolve it
+import * as NoaModule from 'noa-engine';
+const Noa = (NoaModule as any).default ?? NoaModule;
+
 import type { WalkAnchor, VoxelChunkMap, VoxelBlock } from '@/entities/types';
 import { BLOCKS, BLOCK_AIR } from './blockRegistry';
 import { blockToChunkKey } from './GeoAnchor';
 
-// noa-engine ships as CJS without a typed constructor signature; cast to any.
-type Noa = any;
+type NoaInstance = any;
 
 export interface WalkSceneOptions {
   anchor: WalkAnchor;
@@ -18,16 +20,16 @@ export interface WalkSceneOptions {
 }
 
 export class WalkScene {
-  readonly noa: Noa;
+  readonly noa: NoaInstance;
   private _dirty = new Set<string>();
 
-  private constructor(noa: Noa, _anchor: WalkAnchor) {
+  private constructor(noa: NoaInstance, _anchor: WalkAnchor) {
     this.noa = noa;
     void _anchor;
   }
 
   static create(opts: WalkSceneOptions): WalkScene {
-    const noa: Noa = new (Noa as any)({
+    const noa: NoaInstance = new Noa({
       debug: false,
       silent: true,
       playerHeight: 1.8,
@@ -46,12 +48,7 @@ export class WalkScene {
         solid: block.solid,
         opaque: block.solid,
       });
-      noa.registry.registerMaterial(
-        block.name,
-        [1, 1, 1, 1],
-        null,
-        false,
-      );
+      noa.registry.registerMaterial(block.name, [1, 1, 1, 1], null, false);
     }
 
     const scene = new WalkScene(noa, opts.anchor);
@@ -94,8 +91,7 @@ export class WalkScene {
     });
 
     noa.world.on('blockSet', (x: number, y: number, z: number, _blockId: number) => {
-      const key = blockToChunkKey(x, y, z);
-      scene._dirty.add(key);
+      scene._dirty.add(blockToChunkKey(x, y, z));
     });
 
     return scene;
@@ -113,13 +109,11 @@ export class WalkScene {
 
   dispose(): VoxelChunkMap {
     const result: VoxelChunkMap = {};
+    const size = 32;
 
     for (const chunkKey of this._dirty) {
       const [cxS, cyS, czS] = chunkKey.split(',');
-      const cx = Number(cxS);
-      const cy = Number(cyS);
-      const cz = Number(czS);
-      const size = 32;
+      const cx = Number(cxS), cy = Number(cyS), cz = Number(czS);
       const blocks: VoxelBlock[] = [];
 
       for (let i = 0; i < size; i++) {
@@ -129,9 +123,7 @@ export class WalkScene {
             const by = cy * size + j;
             const bz = cz * size + k;
             const id: number = this.noa.getBlock(bx, by, bz);
-            if (id !== BLOCK_AIR) {
-              blocks.push({ bx, by, bz, blockId: id });
-            }
+            if (id !== BLOCK_AIR) blocks.push({ bx, by, bz, blockId: id });
           }
         }
       }
@@ -139,12 +131,7 @@ export class WalkScene {
       if (blocks.length > 0) result[chunkKey] = blocks;
     }
 
-    try {
-      (this.noa as any).dispose?.();
-    } catch (_) {
-      // noa may not expose dispose in all versions
-    }
-
+    try { (this.noa as any).dispose?.(); } catch (_) { /* noa may not expose dispose */ }
     return result;
   }
 }
