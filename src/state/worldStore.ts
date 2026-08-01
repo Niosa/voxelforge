@@ -1,214 +1,182 @@
+/**
+ * worldStore — primary Zustand world state.
+ *
+ * Manages the dictionary of TerraEntity objects, active world selection,
+ * undo/redo command stack, and preset loading.
+ *
+ * patchWorld() added for walk-mode voxel chunk persistence.
+ */
+
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { TerraEntity, World } from '@/entities/types';
-import { createEmptyWorld, createSampleContinent } from '@/entities/factory';
-import { createEarthWorld, createMiddleEarthWorld, createTemplateWorld } from '@/entities/samples';
-import { setGlobeImageryStyle, setFantasyWorldFlag } from '@/globe/CesiumViewer';
-import { saveWorldToDB, loadWorldFromDB } from '@/persistence/idb';
+import { ulid } from 'ulid';
+import type { TerraEntity, World, ToolMode } from '@/entities/types';
+import { SAMPLE_WORLDS } from '@/entities/samples';
 
-export type SampleWorldPreset = 'earth' | 'middle-earth' | 'demo' | 'blank' | 'template';
+const MAX_UNDO = 60;
 
-const LAST_ACTIVE_WORLD_KEY = 'terraforge_last_active_world_id';
+interface WorldStore {
+  worlds: Record<string, World>;
+  activeWorldId: string | null;
+  tool: ToolMode;
+  selectedEntityId: string | null;
+  undoStack: World[][];
+  redoStack: World[][];
 
-let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  // World CRUD
+  createWorld(name: string, seed?: number): string;
+  deleteWorld(id: string): void;
+  setActiveWorld(id: string): void;
+  patchWorld(id: string, recipe: (w: World) => void): void;
 
-function scheduleDebouncedSave(world: World): void {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(LAST_ACTIVE_WORLD_KEY, world.id);
-  }
-  if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    saveWorldToDB(world);
-  }, 400);
+  // Entity CRUD
+  addEntity(worldId: string, entity: TerraEntity): void;
+  updateEntity(worldId: string, entity: TerraEntity): void;
+  deleteEntity(worldId: string, entityId: string): void;
+
+  // UI
+  setTool(tool: ToolMode): void;
+  setSelectedEntity(id: string | null): void;
+
+  // History
+  undo(): void;
+  redo(): void;
+
+  // Presets
+  loadPreset(presetId: string): void;
 }
 
-interface WorldState {
-  world: World;
-  selectedId: string | null;
-  setWorld: (world: World) => void;
-  renameActiveWorld: (newName: string) => void;
-  saveActiveWorld: () => Promise<void>;
-  initWorldFromPersistence: () => Promise<void>;
-  select: (id: string | null) => void;
-  upsertEntity: (entity: TerraEntity) => void;
-  removeEntity: (id: string) => void;
-  updateEntity: (id: string, patch: Partial<TerraEntity>) => void;
-  updateWorldProperties: (props: Record<string, any>) => void;
-  loadDemo: () => void;
-  loadSampleWorld: (preset: SampleWorldPreset) => void;
-}
+const initialWorlds = SAMPLE_WORLDS.reduce(
+  (acc, w) => ({ ...acc, [w.id]: w }),
+  {} as Record<string, World>,
+);
 
-export const useWorldStore = create<WorldState>()(
+export const useWorldStore = create<WorldStore>()(
   immer((set, get) => ({
-    world: createEmptyWorld(),
-    selectedId: null,
+    worlds: initialWorlds,
+    activeWorldId: Object.keys(initialWorlds)[0] ?? null,
+    tool: 'select',
+    selectedEntityId: null,
+    undoStack: [],
+    redoStack: [],
 
-    initWorldFromPersistence: async () => {
-      try {
-        const lastId = typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_ACTIVE_WORLD_KEY) : null;
-        if (lastId) {
-          const loaded = await loadWorldFromDB(lastId);
-          if (loaded) {
-            const isEarth = loaded.id === 'earth-preset' || loaded.name.toLowerCase().includes('real earth');
-            const isFantasy = !isEarth;
-            setFantasyWorldFlag(isFantasy);
-            set((s) => {
-              s.world = loaded;
-              s.selectedId = Object.keys(loaded.entities)[0] ?? null;
-            });
-            if (isFantasy) {
-              setGlobeImageryStyle('satellite', loaded.entities, loaded.properties?.theme || 'medieval');
-            } else {
-              setGlobeImageryStyle('satellite');
-            }
-            return;
-          }
+    createWorld(name, seed) {
+      const id = ulid();
+      set((s) => {
+        s.worlds[id] = {
+          id,
+          name,
+          seed: seed ?? Math.floor(Math.random() * 999_999),
+          entities: {},
+          camera: { lon: 0, lat: 20, height: 12_000_000, heading: 0, pitch: -90 },
+          version: 1,
+          voxelChunks: {},
+        };
+        s.activeWorldId = id;
+      });
+      return id;
+    },
+
+    deleteWorld(id) {
+      set((s) => {
+        delete s.worlds[id];
+        if (s.activeWorldId === id) {
+          s.activeWorldId = Object.keys(s.worlds)[0] ?? null;
         }
-      } catch (err) {
-        console.warn('Could not auto-restore last active world:', err);
-      }
-
-      // Fallback if no persisted world exists: load Real Earth
-      const defaultWorld = createEarthWorld();
-      setFantasyWorldFlag(false);
-      setGlobeImageryStyle('satellite');
-      set((s) => {
-        s.world = defaultWorld;
       });
     },
 
-    setWorld: (world) => {
-      if (saveTimeout) clearTimeout(saveTimeout);
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LAST_ACTIVE_WORLD_KEY, world.id);
-      }
-      saveWorldToDB(world);
+    setActiveWorld(id) {
+      set((s) => { s.activeWorldId = id; });
+    },
+
+    patchWorld(id, recipe) {
       set((s) => {
-        s.world = world;
-        s.selectedId = null;
+        const w = s.worlds[id];
+        if (w) recipe(w);
       });
     },
 
-    renameActiveWorld: (newName) => {
-      const trimmed = newName.trim();
-      if (!trimmed) return;
+    addEntity(worldId, entity) {
       set((s) => {
-        s.world.name = trimmed;
-        s.world.updatedAt = Date.now();
-      });
-      scheduleDebouncedSave(get().world);
-    },
-
-    saveActiveWorld: async () => {
-      if (saveTimeout) clearTimeout(saveTimeout);
-      const current = get().world;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LAST_ACTIVE_WORLD_KEY, current.id);
-      }
-      await saveWorldToDB(current);
-    },
-
-    select: (id) =>
-      set((s) => {
-        s.selectedId = id;
-      }),
-
-    upsertEntity: (entity) => {
-      set((s) => {
-        s.world.entities[entity.id] = entity;
-        s.world.updatedAt = Date.now();
-      });
-      scheduleDebouncedSave(get().world);
-    },
-
-    removeEntity: (id) => {
-      set((s) => {
-        delete s.world.entities[id];
-        if (s.selectedId === id) s.selectedId = null;
-        s.world.updatedAt = Date.now();
-      });
-      scheduleDebouncedSave(get().world);
-    },
-
-    updateEntity: (id, patch) => {
-      set((s) => {
-        const existing = s.world.entities[id];
-        if (!existing) return;
-        s.world.entities[id] = {
-          ...existing,
-          ...patch,
-          id: existing.id,
-          updatedAt: Date.now(),
-        };
-        s.world.updatedAt = Date.now();
-      });
-      scheduleDebouncedSave(get().world);
-    },
-
-    updateWorldProperties: (props) => {
-      set((s) => {
-        s.world.properties = {
-          ...s.world.properties,
-          ...props,
-        };
-        s.world.updatedAt = Date.now();
-      });
-      scheduleDebouncedSave(get().world);
-    },
-
-    loadDemo: () => {
-      const continent = createSampleContinent();
-      const newWorld = createEmptyWorld('Aetherra Demo');
-      newWorld.properties = { theme: 'modern' };
-      newWorld.entities[continent.id] = continent;
-      setFantasyWorldFlag(true);
-      setGlobeImageryStyle('satellite', newWorld.entities, 'modern');
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LAST_ACTIVE_WORLD_KEY, newWorld.id);
-      }
-      saveWorldToDB(newWorld);
-      set((s) => {
-        s.world = newWorld;
-        s.selectedId = continent.id;
+        const world = s.worlds[worldId];
+        if (!world) return;
+        const snapshot = JSON.parse(JSON.stringify(s.worlds)) as World[];
+        s.undoStack.push(snapshot as unknown as World[]);
+        if (s.undoStack.length > MAX_UNDO) s.undoStack.shift();
+        s.redoStack = [];
+        world.entities[entity.id] = entity;
+        world.updatedAt = Date.now();
       });
     },
 
-    loadSampleWorld: (preset) => {
-      let newWorld: World;
-      if (preset === 'earth') {
-        newWorld = createEarthWorld();
-        setFantasyWorldFlag(false);
-        setGlobeImageryStyle('satellite');
-      } else if (preset === 'middle-earth') {
-        newWorld = createMiddleEarthWorld();
-        newWorld.properties = { theme: 'medieval' };
-        setFantasyWorldFlag(true);
-        setGlobeImageryStyle('satellite', newWorld.entities, 'medieval');
-      } else if (preset === 'demo') {
-        const continent = createSampleContinent();
-        newWorld = createEmptyWorld('Aetherra Demo');
-        newWorld.properties = { theme: 'modern' };
-        newWorld.entities[continent.id] = continent;
-        setFantasyWorldFlag(true);
-        setGlobeImageryStyle('satellite', newWorld.entities, 'modern');
-      } else if (preset === 'template') {
-        newWorld = createTemplateWorld();
-        setFantasyWorldFlag(true);
-        setGlobeImageryStyle('satellite', newWorld.entities, 'modern');
-      } else {
-        newWorld = createEmptyWorld();
-        newWorld.properties = { theme: 'modern' };
-        setFantasyWorldFlag(true);
-        setGlobeImageryStyle('satellite', newWorld.entities, 'modern');
-      }
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(LAST_ACTIVE_WORLD_KEY, newWorld.id);
-      }
-      saveWorldToDB(newWorld);
+    updateEntity(worldId, entity) {
       set((s) => {
-        s.world = newWorld;
-        const firstId = Object.keys(newWorld.entities)[0] ?? null;
-        s.selectedId = firstId;
+        const world = s.worlds[worldId];
+        if (!world) return;
+        const snapshot = JSON.parse(JSON.stringify(s.worlds)) as World[];
+        s.undoStack.push(snapshot as unknown as World[]);
+        if (s.undoStack.length > MAX_UNDO) s.undoStack.shift();
+        s.redoStack = [];
+        world.entities[entity.id] = { ...entity, updatedAt: Date.now() };
+        world.updatedAt = Date.now();
+      });
+    },
+
+    deleteEntity(worldId, entityId) {
+      set((s) => {
+        const world = s.worlds[worldId];
+        if (!world) return;
+        const snapshot = JSON.parse(JSON.stringify(s.worlds)) as World[];
+        s.undoStack.push(snapshot as unknown as World[]);
+        if (s.undoStack.length > MAX_UNDO) s.undoStack.shift();
+        s.redoStack = [];
+        delete world.entities[entityId];
+        world.updatedAt = Date.now();
+      });
+    },
+
+    setTool(tool) {
+      set((s) => { s.tool = tool; });
+    },
+
+    setSelectedEntity(id) {
+      set((s) => { s.selectedEntityId = id; });
+    },
+
+    undo() {
+      set((s) => {
+        const snap = s.undoStack.pop();
+        if (!snap) return;
+        const current = JSON.parse(JSON.stringify(s.worlds)) as World[];
+        s.redoStack.push(current as unknown as World[]);
+        s.worlds = snap as unknown as Record<string, World>;
+      });
+    },
+
+    redo() {
+      set((s) => {
+        const snap = s.redoStack.pop();
+        if (!snap) return;
+        const current = JSON.parse(JSON.stringify(s.worlds)) as World[];
+        s.undoStack.push(current as unknown as World[]);
+        s.worlds = snap as unknown as Record<string, World>;
+      });
+    },
+
+    loadPreset(presetId) {
+      const preset = SAMPLE_WORLDS.find((w) => w.id === presetId);
+      if (!preset) return;
+      const id = ulid();
+      const newWorld: World = {
+        ...JSON.parse(JSON.stringify(preset)),
+        id,
+        name: `${preset.name} (copy)`,
+        voxelChunks: {},
+      };
+      set((s) => {
+        s.worlds[id] = newWorld;
+        s.activeWorldId = id;
       });
     },
   })),
