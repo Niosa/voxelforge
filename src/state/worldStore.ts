@@ -1,9 +1,5 @@
 /**
  * worldStore — primary Zustand world state.
- *
- * Exposes a flat single-world API (s.world, s.selectedId, s.select, etc.)
- * that the existing codebase expects, while also supporting multi-world
- * management and voxel chunk persistence for walk mode.
  */
 
 import { create } from 'zustand';
@@ -15,6 +11,12 @@ import {
   createMiddleEarthWorld,
   createTemplateWorld,
 } from '@/entities/samples';
+import {
+  saveWorldToDB,
+  loadWorldFromDB,
+  getAllWorldsFromDB,
+  deleteWorldFromDB,
+} from '@/persistence/idb';
 
 const MAX_UNDO = 60;
 
@@ -25,30 +27,68 @@ export interface SampleWorldPreset {
   description: string;
 }
 
-const PRESETS: World[] = [
-  createMiddleEarthWorld(),
-  createTemplateWorld(),
-  createEarthWorld(),
+// --- Preset builder helpers -------------------------------------------------
+
+function buildBlankWorld(): World {
+  return {
+    id: 'blank-preset',
+    name: 'Blank Globe',
+    seed: 0,
+    entities: {},
+    camera: { lon: 0, lat: 20, height: 12_000_000, heading: 0, pitch: -90 },
+    version: 1,
+    voxelChunks: {},
+  };
+}
+
+function buildEarthWorld(): World {
+  const w = createEarthWorld();
+  return { ...w, id: 'earth-preset' };
+}
+
+function buildMiddleEarthWorld(): World {
+  const w = createMiddleEarthWorld();
+  return { ...w, id: 'middle-earth-preset' };
+}
+
+function buildDemoWorld(): World {
+  const w = createTemplateWorld();
+  return { ...w, id: 'demo-preset', name: 'Demo Planet' };
+}
+
+function buildTemplateWorld(): World {
+  const w = createTemplateWorld();
+  return { ...w, id: 'template-preset' };
+}
+
+// Keyed by the short string the TopBar/WorldManager sends to loadSampleWorld.
+const PRESET_BUILDERS: Record<string, () => World> = {
+  earth: buildEarthWorld,
+  'middle-earth': buildMiddleEarthWorld,
+  demo: buildDemoWorld,
+  template: buildTemplateWorld,
+  blank: buildBlankWorld,
+  // Legacy: also accept the stable IDs themselves
+  'earth-preset': buildEarthWorld,
+  'middle-earth-preset': buildMiddleEarthWorld,
+  'demo-preset': buildDemoWorld,
+  'template-preset': buildTemplateWorld,
+  'blank-preset': buildBlankWorld,
+};
+
+/** Shown in WorldManagerModal preset buttons. */
+export const SAMPLE_WORLD_PRESETS: SampleWorldPreset[] = [
+  { id: 'middle-earth', name: '🗡️ Middle-earth (Arda)', description: 'Tolkien’s Arda' },
+  { id: 'template', name: '🚀 Template Sci-Fi World', description: 'Sci-fi starter' },
 ];
 
-export const SAMPLE_WORLD_PRESETS: SampleWorldPreset[] = PRESETS.map((w) => ({
-  id: w.id,
-  name: w.name,
-  description: w.properties?.description as string ?? '',
-}));
-
 interface WorldStore {
-  // ── Multi-world registry ──────────────────────────────────────────────
   worlds: Record<string, World>;
   activeWorldId: string | null;
-
-  // ── Flat single-world API (computed from activeWorldId) ───────────────
-  /** The currently active world object. Alias for worlds[activeWorldId]. */
   world: World;
   selectedId: string | null;
   tool: ToolMode;
 
-  // ── Entity CRUD ───────────────────────────────────────────────────────
   select(id: string | null): void;
   upsertEntity(entity: TerraEntity): void;
   removeEntity(id: string): void;
@@ -56,7 +96,6 @@ interface WorldStore {
   updateEntity(worldId: string, entity: TerraEntity): void;
   deleteEntity(worldId: string, entityId: string): void;
 
-  // ── World management ─────────────────────────────────────────────────
   createWorld(name: string, seed?: number): string;
   deleteWorld(id: string): void;
   setActiveWorld(id: string): void;
@@ -68,31 +107,27 @@ interface WorldStore {
   initWorldFromPersistence(): void;
   loadSampleWorld(presetId: string): void;
 
-  // ── UI ────────────────────────────────────────────────────────────────
   setTool(tool: ToolMode): void;
 
-  // ── History ───────────────────────────────────────────────────────────
   undoStack: World[][];
   redoStack: World[][];
   undo(): void;
   redo(): void;
 }
 
-const _firstPreset = PRESETS[0];
-const _initialWorlds = PRESETS.reduce(
-  (acc, w) => ({ ...acc, [w.id]: w }),
-  {} as Record<string, World>,
-);
+const _defaultWorld = buildEarthWorld();
+const _initialWorlds: Record<string, World> = {
+  [_defaultWorld.id]: _defaultWorld,
+};
 
 export const useWorldStore = create<WorldStore>()(
   immer((set, get) => ({
     worlds: _initialWorlds,
-    activeWorldId: _firstPreset.id,
+    activeWorldId: _defaultWorld.id,
 
-    // ── Computed flat alias ────────────────────────────────────────────
     get world(): World {
       const s = get();
-      return s.worlds[s.activeWorldId!] ?? PRESETS[0];
+      return s.worlds[s.activeWorldId!] ?? _defaultWorld;
     },
 
     selectedId: null,
@@ -100,12 +135,10 @@ export const useWorldStore = create<WorldStore>()(
     undoStack: [],
     redoStack: [],
 
-    // ── Selection ─────────────────────────────────────────────────────
     select(id) {
       set((s) => { s.selectedId = id; });
     },
 
-    // ── Flat entity CRUD (operate on active world) ─────────────────────
     upsertEntity(entity) {
       set((s) => {
         const w = s.worlds[s.activeWorldId!];
@@ -132,7 +165,6 @@ export const useWorldStore = create<WorldStore>()(
       });
     },
 
-    // ── worldId-scoped entity CRUD (for walk mode / internal use) ─────
     addEntity(worldId, entity) {
       set((s) => {
         const w = s.worlds[worldId];
@@ -160,7 +192,6 @@ export const useWorldStore = create<WorldStore>()(
       });
     },
 
-    // ── World management ──────────────────────────────────────────────
     createWorld(name, seed) {
       const id = ulid();
       set((s) => {
@@ -185,6 +216,7 @@ export const useWorldStore = create<WorldStore>()(
           s.activeWorldId = Object.keys(s.worlds)[0] ?? null;
         }
       });
+      deleteWorldFromDB(id).catch(() => {});
     },
 
     setActiveWorld(id) {
@@ -222,23 +254,49 @@ export const useWorldStore = create<WorldStore>()(
     },
 
     async saveActiveWorld() {
-      // Persistence layer hook — implement with IndexedDB/localStorage as needed.
-      // No-op for now; prevents build errors in UI components.
+      const w = get().world;
+      if (w) await saveWorldToDB(w);
     },
 
     initWorldFromPersistence() {
-      // Called on app mount. Restore from localStorage/IndexedDB if available.
-      // No-op for now — presets are loaded as defaults.
+      // Fire-and-forget: load all persisted worlds from IndexedDB and merge
+      // them into the store, then set the most-recently-updated one as active.
+      getAllWorldsFromDB().then(async (summaries) => {
+        if (!summaries.length) return;
+
+        const loaded: World[] = [];
+        for (const s of summaries) {
+          const w = await loadWorldFromDB(s.id);
+          if (w) loaded.push(w);
+        }
+        if (!loaded.length) return;
+
+        // Sort by most recently updated
+        loaded.sort((a, b) => ((b as any).updatedAt ?? 0) - ((a as any).updatedAt ?? 0));
+        const most_recent = loaded[0]!;
+
+        set((st) => {
+          for (const w of loaded) {
+            st.worlds[w.id] = w;
+          }
+          st.activeWorldId = most_recent.id;
+        });
+      }).catch(() => { /* persistence not available */ });
     },
 
     loadSampleWorld(presetId) {
-      const preset = PRESETS.find((w) => w.id === presetId);
-      if (!preset) return;
+      const builder = PRESET_BUILDERS[presetId];
+      if (!builder) {
+        console.warn('Unknown preset:', presetId);
+        return;
+      }
+      const preset = builder();
+      // Give the copy a fresh ULID so it doesn’t clobber the keyed preset
       const id = ulid();
       const newWorld: World = {
         ...JSON.parse(JSON.stringify(preset)),
         id,
-        name: `${preset.name} (copy)`,
+        name: preset.name === 'Blank Globe' ? 'Blank Globe' : `${preset.name} (copy)`,
         voxelChunks: {},
       };
       set((s) => {
@@ -247,12 +305,10 @@ export const useWorldStore = create<WorldStore>()(
       });
     },
 
-    // ── UI ────────────────────────────────────────────────────────────
     setTool(tool) {
       set((s) => { s.tool = tool; });
     },
 
-    // ── History ───────────────────────────────────────────────────────
     undo() {
       set((s) => {
         const snap = s.undoStack.pop();
