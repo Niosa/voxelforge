@@ -11,9 +11,24 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { ulid } from 'ulid';
 import type { TerraEntity, World, ToolMode } from '@/entities/types';
-import { SAMPLE_WORLDS } from '@/entities/samples';
+import {
+  createEarthWorld,
+  createMiddleEarthWorld,
+  createTemplateWorld,
+} from '@/entities/samples';
 
 const MAX_UNDO = 60;
+
+/** Build the preset list once at module load. */
+const SAMPLE_WORLDS: World[] = [
+  createMiddleEarthWorld(),
+  createTemplateWorld(),
+  // Real-earth world kept as optional preset but not loaded by default
+  // (voxelforge is fantasy-only; uncomment to restore)
+  // createEarthWorld(),
+];
+// Suppress unused-import warning while keeping createEarthWorld importable
+void createEarthWorld;
 
 interface WorldStore {
   worlds: Record<string, World>;
