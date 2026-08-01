@@ -691,6 +691,9 @@ function upsertCesiumEntity(
         outlineColor: outlineColor,
         outlineWidth: outlineWidth,
         extrudedHeight: extrudedHeight > 0 ? extrudedHeight : undefined,
+        // height: 0 is required by Cesium when heightReference is set on a polygon;
+        // omitting it triggers a DeveloperError warning in the console.
+        height: extrudedHeight > 0 ? undefined : 0,
         heightReference: extrudedHeight > 0 ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
         // Stack ground-clamped fills by area rank so nested (smaller) landmasses
         // render on top of larger containers. zIndex only affects ground geometry.
@@ -818,15 +821,26 @@ function createPolygonHierarchies(entity: TerraEntity): PolygonHierarchy[] {
   return [];
 }
 
+/**
+ * Returns true if the Cesium terrain provider has tile availability data,
+ * meaning sampleTerrainMostDetailed can be called safely.
+ * EllipsoidTerrainProvider (used for fantasy worlds) always exists but has no
+ * tile availability — calling sampleTerrainMostDetailed on it throws a
+ * DeveloperError every frame.
+ */
+function terrainHasTileAvailability(viewer: Viewer): boolean {
+  const tp = viewer.terrainProvider as any;
+  if (!tp) return false;
+  // availability is defined on CesiumTerrainProvider but undefined on EllipsoidTerrainProvider
+  return tp.availability != null;
+}
+
 async function resolveTerrainHeightsForEntities(viewer: Viewer, entities: Entity[], lon: number, lat: number) {
-  const terrainProvider = viewer.terrainProvider;
-  // Skip terrain resolution for ellipsoid terrain (no real terrain heights)
-  // and skip if sampleTerrainMostDetailed isn't available
-  if (!terrainProvider) return;
+  if (!terrainHasTileAvailability(viewer)) return;
 
   const carto = Cartographic.fromDegrees(lon, lat);
   try {
-    const [result] = await sampleTerrainMostDetailed(terrainProvider, [carto]);
+    const [result] = await sampleTerrainMostDetailed(viewer.terrainProvider, [carto]);
     if (result && typeof result.height === 'number') {
       const terrainHeight = result.height;
       for (const ent of entities) {
