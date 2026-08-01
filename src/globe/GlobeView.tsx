@@ -17,8 +17,24 @@ import { syncEntitiesToCesium } from '@/globe/entitySync';
 import { flyToWorldCamera } from '@/globe/camera';
 import { WalkOverlay } from '@/walk/WalkOverlay';
 
-// Heuristic: any world that is NOT the Real Earth preset is treated as fantasy.
-function isFantasyWorld(world: { id: string; name: string }): boolean {
+/**
+ * Returns true when the world should render as a fantasy/custom globe
+ * (procedural tile imagery) rather than the real-Earth satellite basemap.
+ *
+ * Priority order:
+ *  1. world.properties.sourcePresetId — stamped by loadSampleWorld; 'earth'
+ *     is the only preset that means Real Earth.
+ *  2. Legacy hard-coded id 'earth-preset' (initial default world).
+ *  3. Name heuristic for worlds imported/created outside loadSampleWorld.
+ */
+function isFantasyWorld(world: { id: string; name: string; properties?: Record<string, any> }): boolean {
+  const src = world.properties?.sourcePresetId as string | undefined;
+  if (src !== undefined) {
+    // Only the 'earth' preset is a real-Earth world.
+    return src !== 'earth';
+  }
+  // Fallback for the initial built-in earth world and any world created
+  // before sourcePresetId was introduced.
   return (
     world.id !== 'earth-preset' &&
     !world.name.toLowerCase().includes('real earth')

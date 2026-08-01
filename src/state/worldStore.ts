@@ -76,9 +76,17 @@ const PRESET_BUILDERS: Record<string, () => World> = {
   'blank-preset': buildBlankWorld,
 };
 
+/**
+ * Canonical preset key for a given raw presetId argument.
+ * Strips the '-preset' suffix so both 'earth' and 'earth-preset' resolve to 'earth'.
+ */
+function canonicalPresetKey(presetId: string): string {
+  return presetId.replace(/-preset$/, '');
+}
+
 /** Shown in WorldManagerModal preset buttons. */
 export const SAMPLE_WORLD_PRESETS: SampleWorldPreset[] = [
-  { id: 'middle-earth', name: '🗡️ Middle-earth (Arda)', description: 'Tolkien’s Arda' },
+  { id: 'middle-earth', name: '🗡️ Middle-earth (Arda)', description: 'Tolkien's Arda' },
   { id: 'template', name: '🚀 Template Sci-Fi World', description: 'Sci-fi starter' },
 ];
 
@@ -291,13 +299,20 @@ export const useWorldStore = create<WorldStore>()(
         return;
       }
       const preset = builder();
-      // Give the copy a fresh ULID so it doesn’t clobber the keyed preset
+      // Give the copy a fresh ULID so it doesn't clobber the keyed preset
       const id = ulid();
+      // Stamp the canonical preset key so GlobeView can identify the world
+      // type even after the id has been replaced with a fresh ULID.
+      const sourcePresetId = canonicalPresetKey(presetId);
       const newWorld: World = {
         ...JSON.parse(JSON.stringify(preset)),
         id,
         name: preset.name === 'Blank Globe' ? 'Blank Globe' : `${preset.name} (copy)`,
         voxelChunks: {},
+        properties: {
+          ...(preset.properties ?? {}),
+          sourcePresetId,
+        },
       };
       set((s) => {
         s.worlds[id] = newWorld;
