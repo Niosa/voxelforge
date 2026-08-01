@@ -15,23 +15,18 @@ export class AddEntityCommand implements Command {
   }
 }
 
-/** Adds several entities as ONE undoable action (e.g. a completed island chain). */
 export class AddEntitiesCommand implements Command {
   name = 'AddEntities';
   constructor(private entities: TerraEntity[]) {}
 
   execute(): void {
     const store = useWorldStore.getState();
-    for (const e of this.entities) {
-      store.upsertEntity(e);
-    }
+    for (const e of this.entities) store.upsertEntity(e);
   }
 
   undo(): void {
     const store = useWorldStore.getState();
-    for (const e of this.entities) {
-      store.removeEntity(e.id);
-    }
+    for (const e of this.entities) store.removeEntity(e.id);
   }
 }
 
@@ -49,9 +44,7 @@ export class DeleteEntityCommand implements Command {
   }
 
   undo(): void {
-    if (this.snapshot) {
-      useWorldStore.getState().upsertEntity(this.snapshot);
-    }
+    if (this.snapshot) useWorldStore.getState().upsertEntity(this.snapshot);
   }
 }
 
@@ -68,7 +61,9 @@ export class UpdateEntityCommand implements Command {
     const entity = useWorldStore.getState().world.entities[this.id];
     if (!entity) return;
     this.before = structuredClone(entity);
-    useWorldStore.getState().updateEntity(this.id, this.patch);
+    // Merge patch onto existing entity so the result is always a full TerraEntity
+    const merged: TerraEntity = { ...entity, ...this.patch, id: this.id };
+    useWorldStore.getState().upsertEntity(merged);
   }
 
   undo(): void {

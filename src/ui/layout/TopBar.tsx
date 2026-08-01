@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useWorldStore, type SampleWorldPreset } from '@/state/worldStore';
+import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { history } from '@/state/history/HistoryStack';
 import { AddEntityCommand } from '@/state/history/commands';
@@ -59,7 +59,6 @@ export function TopBar() {
   const [worldModalOpen, setWorldModalOpen] = useState(false);
   const [lastSavedTime, setLastSavedTime] = useState<string>('Saved ✓');
 
-  // Search Bar state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -81,7 +80,6 @@ export function TopBar() {
     });
   }, [world]);
 
-  // Debounced Place Search
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -118,14 +116,12 @@ export function TopBar() {
     setSearchQuery('');
 
     if (!res.isRealEarth) {
-      // Local Entity
       const entity = world.entities[res.id];
       if (entity) {
         selectEntity(entity.id);
         flyToEntity(entity);
       }
     } else {
-      // Real Earth Nominatim search result -> Drop new pin
       const newPin = createEntity({
         type: 'landmark',
         name: res.name,
@@ -150,8 +146,9 @@ export function TopBar() {
     }
   };
 
+  // loadSampleWorld takes a preset ID string
   const handleSelectSample = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value as SampleWorldPreset;
+    const val = e.target.value;
     if (val) {
       loadSampleWorld(val);
       setImageryStyle(getCurrentImageryStyle());
@@ -210,6 +207,7 @@ export function TopBar() {
     setTerrain3D(getIsTerrain3DActive());
     setOsmBuildingsActive(getIsOsmBuildingsActive());
   };
+
   const handleToggleFantasyBuildings = () => {
     const next = !fantasyBuildingsEnabled;
     setFantasyBuildingsEnabled(next);
@@ -218,6 +216,7 @@ export function TopBar() {
       syncEntitiesToCesium(viewer, world.entities, useWorldStore.getState().selectedId);
     }
   };
+
   return (
     <>
       <HamburgerMenu />
@@ -246,7 +245,6 @@ export function TopBar() {
           </span>
         </div>
 
-        {/* Global Place & Landmark Search Bar */}
         <div className="relative flex-1 max-w-sm">
           <div className="relative flex items-center">
             <span className="absolute left-3 text-slate-400 text-xs">🔍</span>
@@ -259,13 +257,10 @@ export function TopBar() {
               className="w-full rounded-full border border-white/15 bg-slate-900/90 pl-8 pr-8 py-1.5 text-xs text-white placeholder-slate-400 focus:border-teal-400 focus:outline-none transition shadow-inner"
             />
             {isSearching && (
-              <span className="absolute right-3 text-[10px] text-teal-400 animate-spin">
-                ⏳
-              </span>
+              <span className="absolute right-3 text-[10px] text-teal-400 animate-spin">⏳</span>
             )}
           </div>
 
-          {/* Autocomplete Dropdown */}
           {showDropdown && searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1.5 max-h-64 overflow-y-auto rounded-2xl border border-white/20 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur-md z-50 divide-y divide-white/5 scrollbar-thin">
               {searchResults.map((item) => (
@@ -276,12 +271,8 @@ export function TopBar() {
                   className="w-full text-left px-3 py-2 text-xs hover:bg-teal-500/20 rounded-xl transition flex items-center justify-between group"
                 >
                   <div className="truncate max-w-[240px]">
-                    <div className="font-semibold text-slate-200 group-hover:text-teal-300">
-                      {item.name}
-                    </div>
-                    <div className="text-[10px] text-slate-400 truncate">
-                      {item.displayName}
-                    </div>
+                    <div className="font-semibold text-slate-200 group-hover:text-teal-300">{item.name}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{item.displayName}</div>
                   </div>
                   <span className="text-[10px] font-bold rounded px-1.5 py-0.5 bg-white/10 text-slate-300 group-hover:bg-teal-400/20 group-hover:text-teal-200">
                     {item.isRealEarth ? '🌍 Pin Earth' : '📍 Local'}
@@ -309,17 +300,15 @@ export function TopBar() {
             className="flex items-center gap-1 rounded-lg border border-teal-500/30 bg-teal-500/10 px-2 py-1 text-[11px] font-semibold text-teal-300 hover:bg-teal-500/20 transition"
             title="Manually save world to browser storage"
           >
-            <span>💾</span>
-            <span>Save</span>
+            <span>💾</span><span>Save</span>
           </button>
           <button
             type="button"
             onClick={() => useUiStore.getState().setProjectSettingsOpen(true)}
             className="flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/15 hover:text-white transition cursor-pointer"
-            title="Open Project & World Settings (Flag assignment, lore notes, theme)"
+            title="Open Project & World Settings"
           >
-            <span>⚙️</span>
-            <span>Settings</span>
+            <span>⚙️</span><span>Settings</span>
           </button>
           <span className="text-[10px] text-teal-400/80 font-mono">{lastSavedTime}</span>
         </div>
@@ -327,7 +316,6 @@ export function TopBar() {
         <div className="flex-1 hidden md:block" />
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* World Manager Library Modal Button */}
           <button
             type="button"
             onClick={() => setWorldModalOpen(true)}
@@ -337,123 +325,67 @@ export function TopBar() {
             <span className="hidden sm:inline">Worlds</span>
           </button>
 
-          {/* 3D Terrain Toggle */}
-          <button
-            type="button"
-            onClick={handleToggleTerrain3D}
+          <button type="button" onClick={handleToggleTerrain3D}
             className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-              terrain3D
-                ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle 3D Elevation Terrain"
-          >
+              terrain3D ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`} title="Toggle 3D Elevation Terrain">
             {terrain3D ? '⛰️ 3D Terrain ON' : '🏔️ 3D Terrain OFF'}
           </button>
 
-          {/* 3D OSM Buildings Toggle */}
           {!isFantasy && (
-            <button
-              type="button"
-              onClick={handleToggleOsmBuildings}
+            <button type="button" onClick={handleToggleOsmBuildings}
               className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-                osmBuildingsActive
-                  ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                  : 'bg-white/5 text-slate-400 border-white/10'
-              }`}
-              title="Toggle Real Earth 3D OSM Buildings (Basic Shapes)"
-            >
+                osmBuildingsActive ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+              }`} title="Toggle Real Earth 3D OSM Buildings">
               {osmBuildingsActive ? '🏢 Basic 3D ON' : '🏢 Basic 3D OFF'}
             </button>
           )}
 
-          {/* Google Photorealistic 3D Tiles Toggle */}
           {!isFantasy && (
-            <button
-              type="button"
-              onClick={handleToggleGoogle3D}
+            <button type="button" onClick={handleToggleGoogle3D}
               className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-                google3DActive
-                  ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                  : 'bg-white/5 text-slate-400 border-white/10'
-              }`}
-              title="Toggle Google Photorealistic 3D Tiles (Google Earth detailed mesh)"
-            >
+                google3DActive ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+              }`} title="Toggle Google Photorealistic 3D Tiles">
               {google3DActive ? '🌍 Photorealistic 3D ON' : '🌍 Photorealistic 3D OFF'}
             </button>
           )}
-          {/* 3D Buildings Toggle */}
-          <button
-            type="button"
-            onClick={handleToggleFantasyBuildings}
+
+          <button type="button" onClick={handleToggleFantasyBuildings}
             className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-              fantasyBuildingsEnabled
-                ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle Auto-Generated 3D City Buildings"
-          >
+              fantasyBuildingsEnabled ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`} title="Toggle Auto-Generated 3D City Buildings">
             {fantasyBuildingsEnabled ? '🏢 3D Buildings ON' : '🏢 3D Buildings OFF'}
           </button>
 
-          {/* Vehicle Traffic Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              const next = !trafficEnabled;
-              setTrafficEnabled(next);
-              const viewer = getViewer();
-              if (viewer) {
-                syncEntitiesToCesium(viewer, world.entities, useWorldStore.getState().selectedId);
-              }
-            }}
+          <button type="button" onClick={() => {
+            const next = !trafficEnabled;
+            setTrafficEnabled(next);
+            const viewer = getViewer();
+            if (viewer) syncEntitiesToCesium(viewer, world.entities, useWorldStore.getState().selectedId);
+          }}
             className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-              trafficEnabled
-                ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle Moving Road Vehicles & Traffic"
-          >
+              trafficEnabled ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`} title="Toggle Moving Road Vehicles & Traffic">
             {trafficEnabled ? '🚗 Traffic ON' : '🚗 Traffic OFF'}
           </button>
-          {/* Atmosphere Lighting Toggle */}
-          <button
-            type="button"
-            onClick={handleToggleLighting}
+
+          <button type="button" onClick={handleToggleLighting}
             className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-              lighting
-                ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle Dynamic Sun & Atmosphere Lighting"
-          >
+              lighting ? 'bg-amber-500/20 text-amber-200 border-amber-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`} title="Toggle Dynamic Sun & Atmosphere Lighting">
             {lighting ? '☀️ Lighting ON' : '🌙 Lighting OFF'}
           </button>
 
-          {/* Global Fill Overlay Toggle */}
-          <button
-            type="button"
-            onClick={handleToggleGlobalFill}
+          <button type="button" onClick={handleToggleGlobalFill}
             className={`rounded-xl px-2.5 py-1.5 text-xs font-medium border transition ${
-              showFillOverlay
-                ? 'bg-teal-500/20 text-teal-200 border-teal-500/40'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle Polygon Color & Texture Overlay"
-          >
+              showFillOverlay ? 'bg-teal-500/20 text-teal-200 border-teal-500/40' : 'bg-white/5 text-slate-400 border-white/10'
+            }`} title="Toggle Polygon Color & Texture Overlay">
             {showFillOverlay ? '🎨 Fill: ON' : '🎨 Fill: OFF'}
           </button>
 
-          {/* Imagery Base Layer Switcher */}
-          <label htmlFor="globe-imagery-select" className="sr-only">
-            Select Imagery Style
-          </label>
-          <select
-            id="globe-imagery-select"
-            onChange={handleSelectImagery}
-            value={imageryStyle}
-            className="rounded-xl border border-white/15 bg-slate-900/90 px-2.5 py-1.5 text-xs font-medium text-slate-300 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer"
-          >
+          <label htmlFor="globe-imagery-select" className="sr-only">Select Imagery Style</label>
+          <select id="globe-imagery-select" onChange={handleSelectImagery} value={imageryStyle}
+            className="rounded-xl border border-white/15 bg-slate-900/90 px-2.5 py-1.5 text-xs font-medium text-slate-300 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
             {isFantasy ? (
               <>
                 <option value="satellite">🛰️ Fantasy Orbital Satellite</option>
@@ -471,36 +403,24 @@ export function TopBar() {
             )}
           </select>
 
-          {/* World Theme Selector (Fantasy only) */}
           {isFantasy && (
-            <select
-              value={worldTheme}
-              onChange={handleSelectTheme}
-              className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-teal-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer"
-            >
+            <select value={worldTheme} onChange={handleSelectTheme}
+              className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-teal-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
               <option value="medieval">🏰 Medieval Fantasy</option>
               <option value="modern">🏙️ Modern Sci-Fi</option>
             </select>
           )}
 
-          <select
-            id="world-preset-select"
-            onChange={handleSelectSample}
+          <select id="world-preset-select" onChange={handleSelectSample}
             value={
               world.id === 'earth-preset' ? 'earth' :
               world.id === 'middle-earth-preset' || world.name.includes('Middle-earth') ? 'middle-earth' :
               world.id === 'demo-preset' || world.name.includes('Demo') ? 'demo' :
               world.id === 'template-preset' || world.name.includes('Template') ? 'template' :
-              world.id === 'blank-preset' || world.name.includes('Blank') ? 'blank' :
-              ''
+              world.id === 'blank-preset' || world.name.includes('Blank') ? 'blank' : ''
             }
-            className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer"
-          >
-            {world.id !== 'earth-preset' &&
-             world.id !== 'middle-earth-preset' &&
-             world.id !== 'demo-preset' &&
-             world.id !== 'template-preset' &&
-             world.id !== 'blank-preset' && (
+            className="rounded-xl border border-white/15 bg-slate-900/90 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-inner focus:border-teal-400 focus:outline-none transition cursor-pointer">
+            {!['earth-preset','middle-earth-preset','demo-preset','template-preset','blank-preset'].includes(world.id) && (
               <option value="" disabled hidden>🗺️ {world.name}</option>
             )}
             <option value="earth">🌍 Real Earth</option>
@@ -510,12 +430,8 @@ export function TopBar() {
             <option value="blank">➕ Blank Globe</option>
           </select>
 
-          {/* Tutorial Button */}
-          <button
-            type="button"
-            onClick={() => setTutorialOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-semibold text-teal-200 hover:bg-teal-500/20 transition"
-          >
+          <button type="button" onClick={() => setTutorialOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-500/10 px-3 py-1.5 text-xs font-semibold text-teal-200 hover:bg-teal-500/20 transition">
             <span>❓</span>
             <span className="hidden sm:inline">Tutorial</span>
           </button>

@@ -1,20 +1,14 @@
 /**
  * WalkOverlay — React component that manages the walk-mode lifecycle.
- *
- * Renders on top of the Cesium globe canvas. When phase === 'walk' it
- * mounts a <canvas> and drives the noa WalkScene. When phase === 'globe'
- * it is invisible (pointer-events: none).
- *
- * Usage: mount once inside <App /> alongside <GlobeView />.
  */
 
-import React, { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useWalkStore } from '@/state/walkStore';
 import { useWorldStore } from '@/state/worldStore';
 import { WalkScene } from './WalkScene';
 import { makeAnchor } from './GeoAnchor';
 import { getViewer } from '@/globe/CesiumViewer';
-import { CesiumMath } from 'cesium';
+import { Math as CesiumMath } from 'cesium';
 
 let _scene: WalkScene | null = null;
 let _rafId: number | null = null;
@@ -26,7 +20,6 @@ export function WalkOverlay() {
     useWalkStore();
   const { activeWorldId, worlds, patchWorld } = useWorldStore();
 
-  // ── Descend into walk mode ──────────────────────────────────────────────
   const descend = useCallback(() => {
     const cesiumViewer = getViewer();
     if (!cesiumViewer) return;
@@ -43,16 +36,14 @@ export function WalkOverlay() {
     beginDescent(newAnchor, savedChunks);
   }, [activeWorldId, worlds, beginDescent]);
 
-  // Expose descend globally so TopBar / HUD can call it
   useEffect(() => {
     (window as any).__voxelforgeDescend = descend;
     return () => { delete (window as any).__voxelforgeDescend; };
   }, [descend]);
 
-  // ── Transition: globe → walk ─────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'transitioning' || !anchor) return;
-    if (_scene) return; // already building
+    if (_scene) return;
 
     const worldId = activeWorldId;
     const world = worldId ? worlds[worldId] : null;
@@ -66,7 +57,6 @@ export function WalkOverlay() {
     confirmWalk();
   }, [phase, anchor, entryChunks, activeWorldId, worlds, confirmWalk]);
 
-  // ── Mount noa canvas when walk phase confirmed ───────────────────────────
   useEffect(() => {
     if (phase !== 'walk' || !_scene || !containerRef.current) return;
 
@@ -87,7 +77,6 @@ export function WalkOverlay() {
     };
   }, [phase]);
 
-  // ── Ascend back to globe ─────────────────────────────────────────────────
   const ascend = useCallback(() => {
     if (!_scene) return;
     beginAscent();
@@ -96,7 +85,6 @@ export function WalkOverlay() {
     _scene = null;
     if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
 
-    // Merge dirty chunks back into world
     if (activeWorldId) {
       patchWorld(activeWorldId, (w) => {
         w.voxelChunks = { ...(w.voxelChunks ?? {}), ...dirtyChunks };
@@ -111,20 +99,15 @@ export function WalkOverlay() {
 
   return (
     <>
-      {/* Fade overlay */}
       <div
         className="pointer-events-none fixed inset-0 z-40 bg-black transition-opacity duration-500"
         style={{ opacity: phase === 'transitioning' ? 1 : 0 }}
       />
-
-      {/* noa canvas container */}
       <div
         ref={containerRef}
         className="fixed inset-0 z-30"
         style={{ display: isVisible ? 'block' : 'none' }}
       />
-
-      {/* Walk-mode HUD */}
       {phase === 'walk' && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
           <button
