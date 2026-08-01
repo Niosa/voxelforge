@@ -1068,7 +1068,13 @@ export function setFantasyWorldFlag(fantasy: boolean): void {
   }
 
   if (viewer && !viewer.isDestroyed()) {
-    setGlobeImageryStyle(currentImageryStyle);
+    // Read the active world from the store so entities and theme are always
+    // available regardless of whether the viewer was just created or already
+    // existed (singleton early-return path).
+    const activeWorld = useWorldStore.getState().world;
+    const entities = fantasy ? (activeWorld.entities ?? {}) : undefined;
+    const theme = activeWorld.properties?.theme || 'medieval';
+    setGlobeImageryStyle(currentImageryStyle, entities, theme);
     syncWorldBordersData(viewer);
   }
 }
