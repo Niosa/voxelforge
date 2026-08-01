@@ -540,7 +540,11 @@ function upsertCesiumEntity(
       useUiStore.getState().fantasyBuildingsEnabled &&
       !useUiStore.getState().performanceMode;
     if (showBuildings) {
-      const structures = createTownStructureEntities(viewer, entity);
+      const structures = createTownStructureEntities(
+        viewer,
+        entity,
+        entity.properties?.districtType as 'downtown' | 'commercial' | 'residential' | 'industrial' | undefined,
+      );
       for (const st of structures) {
         const added = viewer.entities.add(st);
         created.push(added);
@@ -784,7 +788,11 @@ function upsertCesiumEntity(
       useUiStore.getState().fantasyBuildingsEnabled &&
       !useUiStore.getState().performanceMode;
     if (showBuildings) {
-      const structures = createTownStructureEntities(viewer, entity);
+      const structures = createTownStructureEntities(
+        viewer,
+        entity,
+        entity.properties?.districtType as 'downtown' | 'commercial' | 'residential' | 'industrial' | undefined,
+      );
       for (const st of structures) {
         const added = viewer.entities.add(st);
         created.push(added);

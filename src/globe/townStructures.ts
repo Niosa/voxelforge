@@ -9,6 +9,7 @@ import {
 } from 'cesium';
 import type { TerraEntity, TerraGeometry } from '@/entities/types';
 import { geometryCentroid } from '@/geo/centroid';
+import { getEntityArea } from '@/geo/geometryArea';
 import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { LruCache } from '@/utils/lruCache';
@@ -329,6 +330,7 @@ function getMedievalFacadeTexture(colorHex: string): string {
 export function createTownStructureEntities(
   _viewer: Viewer,
   entity: TerraEntity,
+  districtType?: 'downtown' | 'commercial' | 'residential' | 'industrial',
 ): Entity[] {
   if (entity.type !== 'city' && entity.type !== 'town') {
     return [];
@@ -418,10 +420,32 @@ export function createTownStructureEntities(
       }
     }
 
-    // Cap building count for smooth 60 FPS performance on iPad and desktop
-    const isTouch = typeof navigator !== 'undefined' && ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
-    const maxBuildings = isTouch ? 9 : 16;
-    gridPoints = gridPoints.slice(0, maxBuildings);
+    // Area/population-based desired building count with district-type multiplier.
+    // Sort closest-first before slicing so the denser downtown core always wins.
+    const entityArea = getEntityArea(entity);
+    const population = typeof entity.properties?.population === 'number'
+      ? entity.properties.population
+      : 0;
+
+    let desiredBuildings = Math.max(4, Math.ceil(entityArea / 5000));
+    if (population > 0) {
+      desiredBuildings = Math.max(desiredBuildings, Math.ceil(population / 100));
+    }
+
+    const multiplier =
+      districtType === 'downtown' ? 1.5 :
+      districtType === 'commercial' ? 1.2 :
+      districtType === 'residential' ? 0.8 :
+      districtType === 'industrial' ? 0.7 :
+      1;
+
+    const isTouch = typeof navigator !== 'undefined' &&
+      ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
+    const cap = isTouch ? 12 : 24;
+
+    gridPoints = gridPoints
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, Math.min(Math.ceil(desiredBuildings * multiplier), cap));
 
     for (const pt of gridPoints) {
       const bLng = pt.lon;
@@ -1134,4 +1158,3 @@ export function createTownStructureEntities(
 
   return structures;
 }
-
