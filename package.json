@@ -14,7 +14,7 @@
     "@turf/turf": "^7.2.0",
     "cesium": "^1.126.0",
     "immer": "^10.1.1",
-    "noa-engine": "^0.36.3",
+    "noa-engine": "^0.33.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ulid": "^2.3.0",
