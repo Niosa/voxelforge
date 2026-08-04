@@ -15,6 +15,7 @@ import {
   Math as CesiumMath,
   DistanceDisplayCondition,
   ConstantPositionProperty,
+  ClassificationType,
 } from 'cesium';
 import type { TerraEntity } from '@/entities/types';
 import { geometryCentroid } from '@/geo/centroid';
@@ -27,6 +28,7 @@ import { useWorldStore } from '@/state/worldStore';
 import {
   getIsFantasyWorld,
   updateFantasyImageryEntities,
+  getViewer,
 } from '@/globe/CesiumViewer';
 import { trafficManager } from '@/globe/trafficManager';
 import { syncWorldBordersData } from '@/globe/borderOverlay';
@@ -58,6 +60,12 @@ const managed = new Map<string, ManagedRecord>();
 let globalShowFillOverlay = false;
 let cullListenerAttached = false;
 
+/**
+ * Camera-driven bbox culling: hides managed entities whose bounding box is
+ * outside the current view so off-screen fills/labels don't cost GPU/CPU.
+ * Respects the frustumCullingEnabled UI flag; re-evaluated on camera moveEnd
+ * and after every sync.
+ */
 function ensureFrustumCuller(viewer: Viewer): void {
   if (cullListenerAttached) return;
   cullListenerAttached = true;
@@ -70,15 +78,23 @@ function applyFrustumCulling(viewer: Viewer): void {
   if (!useUiStore.getState().frustumCullingEnabled) {
     for (const record of managed.values()) {
       for (const e of record.cesiumEntities) {
-        if (!e.show) e.show = true;
+        e.show = true;
       }
     }
     return;
   }
 
   const rect = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
-  if (!rect) return;
+  if (!rect) {
+    for (const record of managed.values()) {
+      for (const e of record.cesiumEntities) {
+        e.show = true;
+      }
+    }
+    return;
+  }
 
+  // Small margin so entities don't visibly pop at the viewport edge
   const west = CesiumMath.toDegrees(rect.west) - 5;
   const east = CesiumMath.toDegrees(rect.east) + 5;
   const south = CesiumMath.toDegrees(rect.south) - 5;
@@ -108,6 +124,7 @@ function computeEntityBoundingBox(entity: TerraEntity): BoundingBox {
     return { minLon: lon - 0.005, maxLon: lon + 0.005, minLat: lat - 0.005, maxLat: lat + 0.005 };
   }
 
+  // Cover every landmass part (islands) — MultiPolygon outer rings
   const outerRings: number[][][] = [];
   if (geom.type === 'Polygon') {
     if (geom.coordinates[0]) outerRings.push(geom.coordinates[0] as number[][]);
@@ -139,7 +156,7 @@ function getLabelDistanceDisplayCondition(
   entity: TerraEntity,
   isSelected: boolean,
 ): DistanceDisplayCondition | undefined {
-  if (isSelected) return undefined;
+  if (isSelected) return undefined; // Selected entity label & pin are always visible
 
   const type = entity.type;
   const isCapital = entity.tags.includes('capital');
@@ -166,6 +183,8 @@ function getBorderStyleConfig(entity: TerraEntity, isSelected: boolean) {
   const uiState = useUiStore.getState();
   const { showCountryBorders, showRegionBorders, showCityBorders, borderStyle } = uiState;
 
+  // Real Earth sample continents and islands use simplified bounding polygons for fill.
+  // Their crisp, accurate boundary lines are rendered by borderOverlay (Natural Earth 50m vectors).
   if (entity.tags.includes('earth-sample-bounding-box') && (entity.type === 'continent' || entity.type === 'island')) {
     if (!isSelected) {
       return { showOutline: false, color: Color.TRANSPARENT, width: 0 };
@@ -206,6 +225,17 @@ function getBorderStyleConfig(entity: TerraEntity, isSelected: boolean) {
 
 export function setGlobalShowFillOverlay(show: boolean): void {
   globalShowFillOverlay = show;
+  const v = activeViewer ?? getViewer();
+  if (v && !v.isDestroyed()) {
+    resetEntitySyncState();
+    const world = useWorldStore.getState().world;
+    const selectedId = useWorldStore.getState().selectedId;
+    if (world) {
+      syncEntitiesToCesium(v, world.entities, selectedId);
+      updateFantasyImageryEntities(world.entities, world.properties?.theme ?? 'medieval');
+      v.scene.requestRender();
+    }
+  }
 }
 
 export function getGlobalShowFillOverlay(): boolean {
@@ -214,6 +244,11 @@ export function getGlobalShowFillOverlay(): boolean {
 
 let activeViewer: Viewer | null = null;
 
+/**
+ * Drops all managed records and removes their Cesium entities, forcing the next
+ * sync to re-create everything (used when Performance Mode toggles so texture
+ * resolution / building generation pick up the new quality settings).
+ */
 export function resetEntitySyncState(): void {
   if (activeViewer && !activeViewer.isDestroyed()) {
     for (const record of managed.values()) {
@@ -244,6 +279,10 @@ export function syncEntitiesToCesium(
   const { showCountryBorders, showRegionBorders, showCityBorders, borderStyle, performanceMode } = uiState;
   let contentChanged = false;
 
+  // Compute ground-fill stacking order from geometry area: the smallest, most
+  // specific polygons get the highest zIndex so they render on top of any
+  // larger landmass they sit inside. This keeps visual layering consistent
+  // with pick ranking (smallest territory at the click point wins).
   const zRankById = new Map<string, number>();
   Object.values(entities)
     .filter((e) => e.geometry && e.geometry.type !== 'Point')
@@ -295,6 +334,9 @@ export function syncEntitiesToCesium(
     const existing = managed.get(entity.id);
     const zRank = entity.geometry.type === 'Point' ? -1 : (zRankById.get(entity.id) ?? 0);
 
+    // Reference-based change detection: immer produces a new entity object on
+    // every store update, so a reference match means nothing changed. This
+    // avoids same-millisecond updatedAt collisions silently skipping a refresh.
     if (
       existing &&
       existing.entityRef === entity &&
@@ -317,19 +359,25 @@ export function syncEntitiesToCesium(
       managed.delete(entity.id);
     }
 
+    // Defensive: if a previous upsert threw mid-way, an untracked Cesium entity
+    // with this ID may still exist. EntityCollection.add() throws on duplicate
+    // IDs, which would otherwise wedge every future sync for every entity.
     try {
       viewer.entities.removeById(entity.id);
     } catch (_) {
+      /* ignore */
     }
 
     let cesiumEntities: Entity[];
     try {
       cesiumEntities = upsertCesiumEntity(viewer, entity, isSelected, zRank);
     } catch (err) {
+      // Isolate per-entity failures so one bad entity cannot break the entire sync.
       console.error(`[entitySync] Failed to sync entity "${entity.name}" (${entity.id}):`, err);
       try {
         viewer.entities.removeById(entity.id);
       } catch (_) {
+        /* ignore */
       }
       continue;
     }
@@ -359,11 +407,19 @@ export function syncEntitiesToCesium(
     });
   }
 
+  // Sync entities to Fantasy Imagery Provider for dynamic tile-level LoD texturing.
+  // Only regenerate tiles when entity content actually changed — selection-only
+  // syncs don't alter the base map, and regenerating on every click causes flicker.
   if (contentChanged) {
-    updateFantasyImageryEntities(entities);
+    const theme = useWorldStore.getState().world.properties?.theme ?? 'medieval';
+    updateFantasyImageryEntities(entities, theme);
   }
 
+  // Sync Real Earth & World Land Borders Data
   syncWorldBordersData(viewer);
+
+  // Apply view-based culling so newly created entities outside the viewport
+  // start hidden immediately
   applyFrustumCulling(viewer);
 }
 
@@ -396,6 +452,8 @@ function upsertCesiumEntity(
 ): Entity[] {
   const created: Entity[] = [];
 
+  // In 1st-Person mode, suppress non-voxel ground polygon fills, mountain tiers, and 2D pins
+  // so only 3D voxel blocks and natural terrain render.
   const is1stPerson = useUiStore.getState().firstPersonActive;
   if (is1stPerson && !entity.properties?.isVoxelBlock && !entity.properties?.is1stPersonStructure) {
     return created;
@@ -407,6 +465,8 @@ function upsertCesiumEntity(
   );
   const fillAlpha = showFill ? Math.max(0.3, entity.fillOpacity) : 0.001;
 
+  // Performance Mode: 128px biome textures are ~4x cheaper than 256px but stay
+  // crisp enough on a Retina iPad (64px was too aggressive for the A13-class iPad 9).
   const textureResolution = useUiStore.getState().performanceMode ? 128 : 256;
 
   const borderConfig = getBorderStyleConfig(entity, selected);
@@ -421,10 +481,14 @@ function upsertCesiumEntity(
     const pinIcon = (entity.properties.pinIcon as PinIcon) || (entity.tags.includes('capital') ? 'capital' : entity.type === 'city' ? 'city' : entity.type === 'landmark' ? 'landmark' : 'pin');
     const pinHeight = (entity.properties.pinHeight as number) || 0;
 
+    // 1st-Person Minecraft Voxel Blocks are no longer rendered here!
+    // They are natively managed and rendered via VoxelChunkManager and VoxelRenderer.
     if (entity.properties?.isVoxelBlock || entity.properties?.is1stPersonStructure) {
-      return created;
+      return created; // Skip rendering individually!
     }
 
+    // Hide 2D billboard pins & floating text labels while in 1st-person mode
+    const is1stPerson = useUiStore.getState().firstPersonActive;
     if (is1stPerson) {
       return created;
     }
@@ -440,6 +504,7 @@ function upsertCesiumEntity(
     const position = Cartesian3.fromDegrees(lon, lat, pinHeight);
     const heightRef = pinHeight > 0 ? HeightReference.RELATIVE_TO_GROUND : HeightReference.CLAMP_TO_GROUND;
 
+    // Draw vertical 3D tether line down to ground if elevated
     if (pinHeight > 0) {
       const tether = viewer.entities.add({
         polyline: {
@@ -478,7 +543,7 @@ function upsertCesiumEntity(
         showBackground: true,
         backgroundColor: Color.fromCssColorString('#090d16').withAlpha(0.85),
         backgroundPadding: new Cartesian2(8, 4),
-        style: 2,
+        style: 2, // FILL_AND_OUTLINE
         verticalOrigin: pinStyle === 'teardrop' || pinStyle === 'flag' ? VerticalOrigin.TOP : VerticalOrigin.BOTTOM,
         horizontalOrigin: HorizontalOrigin.CENTER,
         pixelOffset: new Cartesian2(0, pinStyle === 'teardrop' || pinStyle === 'flag' ? 6 : (selected ? -28 : -22)),
@@ -489,6 +554,8 @@ function upsertCesiumEntity(
     });
     created.push(mainPoint);
 
+    // Add 3D town structures (citadels, towers, city blocks) if enabled in UI & entity properties.
+    // Skipped in Performance Mode: each town spawns many textured entities — too heavy for low-power devices.
     const showBuildings =
       entity.properties?.generate3DBuildings !== false &&
       useUiStore.getState().fantasyBuildingsEnabled &&
@@ -512,6 +579,7 @@ function upsertCesiumEntity(
     return created;
   }
 
+  // Polygon / MultiPolygon
   const geom = entity.geometry;
   const isPolygon = geom.type === 'Polygon' || geom.type === 'MultiPolygon';
   const extrudedHeight = (entity.properties.extrudedHeight as number) ?? 0;
@@ -527,6 +595,7 @@ function upsertCesiumEntity(
     const ring = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0]?.[0] ?? [];
     if (ring && ring.length > 0) {
       const centroid: [number, number] = [lon, lat];
+      // Generate 5 nested concentric tiers to build a smooth sloped mountain range profile
       const tiers = [
         { scale: 1.00, heightCoeff: 0.15, biomeType: biome, opacity: fillAlpha },
         { scale: 0.82, heightCoeff: 0.40, biomeType: biome, opacity: fillAlpha },
@@ -586,6 +655,7 @@ function upsertCesiumEntity(
         created.push(tierEntity);
       }
 
+      // Add label at the very center peak
       const labelEntity = viewer.entities.add({
         id: entity.id,
         name: entity.name,
@@ -627,6 +697,7 @@ function upsertCesiumEntity(
     const bbox = computeEntityBoundingBox(entity);
     const degWidth = Math.max(0.1, bbox.maxLon - bbox.minLon);
     const degHeight = Math.max(0.1, bbox.maxLat - bbox.minLat);
+    // High-frequency texture repeating to ensure high resolution when zooming in close
     const repeatX = Math.max(4, Math.round(degWidth * 6));
     const repeatY = Math.max(4, Math.round(degHeight * 6));
 
@@ -636,12 +707,16 @@ function upsertCesiumEntity(
       repeat: new Cartesian2(repeatX, repeatY),
     });
   } else {
+    // In Fantasy Mode, the ProceduralFantasyImageryProvider renders dynamic multi-resolution LoD tiles.
+    // Use translucent color overlay so the underlying LoD terrain tiles show through sharply at every zoom level.
     materialProperty = new ColorMaterialProperty(fillColor);
   }
 
   const hierarchies = createPolygonHierarchies(entity);
   for (let hIdx = 0; hIdx < hierarchies.length; hIdx++) {
     const polyEntity = viewer.entities.add({
+      // First part carries the entity id + label; extra parts (islands) share
+      // the same material/zIndex and are linked back via terraEntityId below.
       id: hIdx === 0 ? entity.id : `${entity.id}__part${hIdx}`,
       name: hIdx === 0 ? entity.name : `${entity.name} (part ${hIdx + 1})`,
       polygon: {
@@ -651,8 +726,13 @@ function upsertCesiumEntity(
         outlineColor: outlineColor,
         outlineWidth: outlineWidth,
         extrudedHeight: extrudedHeight > 0 ? extrudedHeight : undefined,
+        // height: 0 is required by Cesium when heightReference is set on a polygon;
+        // omitting it triggers a DeveloperError warning in the console.
         height: extrudedHeight > 0 ? undefined : 0,
         heightReference: extrudedHeight > 0 ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
+        classificationType: ClassificationType.BOTH,
+        // Stack ground-clamped fills by area rank so nested (smaller) landmasses
+        // render on top of larger containers. zIndex only affects ground geometry.
         zIndex: extrudedHeight > 0 ? undefined : zRank,
       },
       position: Cartesian3.fromDegrees(lon, lat),
@@ -675,6 +755,8 @@ function upsertCesiumEntity(
     created.push(polyEntity);
   }
 
+  // Cesium ignores polygon.outline on ground-clamped polygons (extrudedHeight <= 0).
+  // Generate explicit ground-clamped polyline boundaries for crisp visible borders.
   if (borderConfig.showOutline && extrudedHeight <= 0) {
     const rings: [number, number][][] = [];
     if (geom.type === 'Polygon') {
@@ -713,6 +795,7 @@ function upsertCesiumEntity(
             width: outlineWidth,
             material: new ColorMaterialProperty(outlineColor),
             clampToGround: true,
+            classificationType: ClassificationType.BOTH,
             zIndex: outlineZIndex,
           },
         });
@@ -721,6 +804,7 @@ function upsertCesiumEntity(
     }
   }
 
+  // Add 3D town structures for polygon cities/towns
   if ((entity.type === 'city' || entity.type === 'town') && isPolygon) {
     const showBuildings =
       entity.properties?.generate3DBuildings !== false &&
@@ -747,6 +831,7 @@ function upsertCesiumEntity(
 
 function ringsToHierarchy(rings: number[][][]): PolygonHierarchy {
   const outer = rings[0] ?? [];
+  // Interior rings (from erase-hole cuts) become Cesium polygon holes
   const holes = rings
     .slice(1)
     .filter((r) => r && r.length > 2)
@@ -757,6 +842,11 @@ function ringsToHierarchy(rings: number[][][]): PolygonHierarchy {
   );
 }
 
+/**
+ * One hierarchy per landmass part: MultiPolygon parts (islands) each get their
+ * own hierarchy so every disjoint piece of an entity renders, and interior
+ * rings render as holes (lakes / erased areas).
+ */
 function createPolygonHierarchies(entity: TerraEntity): PolygonHierarchy[] {
   const geom = entity.geometry;
   if (geom.type === 'Polygon') {
@@ -772,9 +862,17 @@ function createPolygonHierarchies(entity: TerraEntity): PolygonHierarchy[] {
   return [];
 }
 
+/**
+ * Returns true if the Cesium terrain provider has tile availability data,
+ * meaning sampleTerrainMostDetailed can be called safely.
+ * EllipsoidTerrainProvider (used for fantasy worlds) always exists but has no
+ * tile availability — calling sampleTerrainMostDetailed on it throws a
+ * DeveloperError every frame.
+ */
 function terrainHasTileAvailability(viewer: Viewer): boolean {
   const tp = viewer.terrainProvider as any;
   if (!tp) return false;
+  // availability is defined on CesiumTerrainProvider but undefined on EllipsoidTerrainProvider
   return tp.availability != null;
 }
 

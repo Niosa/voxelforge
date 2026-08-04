@@ -32,9 +32,10 @@ function buildBlankWorld(): World {
   return {
     id: 'blank-preset',
     name: 'Blank Globe',
-    seed: 0,
+    seed: 10001,
     entities: {},
-    camera: { lon: 0, lat: 20, height: 12_000_000, heading: 0, pitch: -90 },
+    updatedAt: Date.now(),
+    camera: { lon: -40, lat: 10, height: 12_500_000, heading: 0, pitch: -90 },
     version: 1,
     voxelChunks: {},
   };
@@ -42,17 +43,17 @@ function buildBlankWorld(): World {
 
 function buildMiddleEarthWorld(): World {
   const w = createMiddleEarthWorld();
-  return { ...w, id: 'middle-earth-preset' };
+  return { ...w, id: 'middle-earth-preset', updatedAt: Date.now() };
 }
 
 function buildDemoWorld(): World {
   const w = createTemplateWorld();
-  return { ...w, id: 'demo-preset', name: 'Demo Planet' };
+  return { ...w, id: 'demo-preset', name: 'Demo Planet', updatedAt: Date.now(), camera: { lon: 80, lat: 25, height: 6_000_000, heading: 0, pitch: -90 } };
 }
 
 function buildTemplateWorld(): World {
   const w = createTemplateWorld();
-  return { ...w, id: 'template-preset' };
+  return { ...w, id: 'template-preset', updatedAt: Date.now(), camera: { lon: 10, lat: 17, height: 2_500_000, heading: 0, pitch: -75 } };
 }
 
 // Keyed by the short string the TopBar/WorldManager sends to loadSampleWorld.
@@ -119,19 +120,54 @@ interface WorldStore {
   redo(): void;
 }
 
-const _defaultWorld = buildMiddleEarthWorld();
+const ACTIVE_WORLD_KEY = 'voxelforge_active_world_id';
+
+function getStoredActiveWorldId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(ACTIVE_WORLD_KEY);
+  } catch (_) {
+    return null;
+  }
+}
+
+function setStoredActiveWorldId(id: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(ACTIVE_WORLD_KEY, id);
+  } catch (_) {}
+}
+
+// Start with a blank globe so the world getter never falls back to Middle-earth
+// entities before IndexedDB persistence has resolved (Bug 2 fix).
+const _defaultWorld = buildBlankWorld();
+
+// Pre-populate the worlds map with both the blank default AND the stored active
+// preset (if it resolves to a known builder). This prevents the world getter's
+// fallback to Object.keys()[0] from returning the wrong world (Bug 3 fix).
+const initialStoredId = getStoredActiveWorldId();
 const _initialWorlds: Record<string, World> = {
   [_defaultWorld.id]: _defaultWorld,
 };
+if (initialStoredId && initialStoredId !== _defaultWorld.id) {
+  if (PRESET_BUILDERS[initialStoredId]) {
+    // Synchronously seed the store with the correct preset world so GlobeView's
+    // first render uses the right entities instead of the blank fallback.
+    _initialWorlds[initialStoredId] = PRESET_BUILDERS[initialStoredId]!();
+  }
+}
+const initialActiveId = initialStoredId && _initialWorlds[initialStoredId]
+  ? initialStoredId
+  : _defaultWorld.id;
 
 export const useWorldStore = create<WorldStore>()(
   immer((set, get) => ({
     worlds: _initialWorlds,
-    activeWorldId: _defaultWorld.id,
+    activeWorldId: initialActiveId,
 
     get world(): World {
       const s = get();
-      return s.worlds[s.activeWorldId!] ?? _defaultWorld;
+      return s.worlds[s.activeWorldId!] ?? s.worlds[Object.keys(s.worlds)[0]!] ?? _defaultWorld;
     },
 
     selectedId: null,
@@ -213,6 +249,7 @@ export const useWorldStore = create<WorldStore>()(
         s.worlds[id] = newWorld;
         s.activeWorldId = id;
       });
+      setStoredActiveWorldId(id);
       saveWorldToDB(newWorld).catch(() => {});
       return id;
     },
@@ -221,7 +258,15 @@ export const useWorldStore = create<WorldStore>()(
       set((s) => {
         delete s.worlds[id];
         if (s.activeWorldId === id) {
-          s.activeWorldId = Object.keys(s.worlds)[0] ?? null;
+          const remainingKeys = Object.keys(s.worlds);
+          if (remainingKeys.length > 0) {
+            s.activeWorldId = remainingKeys[0]!;
+          } else {
+            const freshBlank = buildBlankWorld();
+            s.worlds[freshBlank.id] = freshBlank;
+            s.activeWorldId = freshBlank.id;
+          }
+          setStoredActiveWorldId(s.activeWorldId);
         }
       });
       deleteWorldFromDB(id).catch(() => {});
@@ -233,6 +278,7 @@ export const useWorldStore = create<WorldStore>()(
         const w = s.worlds[id];
         if (w) w.updatedAt = Date.now();
       });
+      setStoredActiveWorldId(id);
       const w = get().worlds[id];
       if (w) saveWorldToDB(w).catch(() => {});
     },
@@ -242,6 +288,7 @@ export const useWorldStore = create<WorldStore>()(
         s.worlds[world.id] = { ...world, updatedAt: Date.now() };
         s.activeWorldId = world.id;
       });
+      setStoredActiveWorldId(world.id);
       saveWorldToDB(world).catch(() => {});
     },
 
@@ -292,8 +339,6 @@ export const useWorldStore = create<WorldStore>()(
     },
 
     initWorldFromPersistence() {
-      // Fire-and-forget: load all persisted worlds from IndexedDB and merge
-      // them into the store, then set the most-recently-updated one as active.
       getAllWorldsFromDB().then(async (summaries) => {
         if (!summaries.length) return;
 
@@ -306,16 +351,36 @@ export const useWorldStore = create<WorldStore>()(
 
         // Sort by most recently updated
         loaded.sort((a, b) => ((b as any).updatedAt ?? 0) - ((a as any).updatedAt ?? 0));
-        const most_recent = loaded[0]!;
 
         set((st) => {
           for (const w of loaded) {
-            st.worlds[w.id] = w;
+            // If loaded world is a sample preset, refresh it with factory builder but preserve user entities
+            if (PRESET_BUILDERS[w.id]) {
+              const fresh = PRESET_BUILDERS[w.id]!();
+              const hasUserEntities = w.entities && Object.keys(w.entities).length > 0;
+              st.worlds[w.id] = {
+                ...fresh,
+                entities: hasUserEntities ? w.entities : fresh.entities,
+                voxelChunks: w.voxelChunks ?? {},
+                updatedAt: w.updatedAt ?? Date.now(),
+              };
+            } else {
+              st.worlds[w.id] = w;
+            }
           }
-          // Preserve current user selection if user already selected/created a world
-          if (!st.activeWorldId || st.activeWorldId === _defaultWorld.id || !st.worlds[st.activeWorldId]) {
-            st.activeWorldId = most_recent.id;
+
+          const stored = getStoredActiveWorldId();
+          if (stored && st.worlds[stored]) {
+            st.activeWorldId = stored;
+          } else if (!st.activeWorldId || !st.worlds[st.activeWorldId]) {
+            st.activeWorldId = loaded[0]!.id;
+            setStoredActiveWorldId(st.activeWorldId);
           }
+
+          // Stamp a fresh updatedAt so GlobeView's [world?.updatedAt] dep always
+          // detects the persistence-load swap even when the world ID hasn't changed.
+          const activeW = st.worlds[st.activeWorldId!];
+          if (activeW) activeW.updatedAt = Date.now();
         });
       }).catch(() => { /* persistence not available */ });
     },
@@ -329,13 +394,8 @@ export const useWorldStore = create<WorldStore>()(
       const canonicalKey = canonicalPresetKey(presetId);
       const stableId = `${canonicalKey}-preset`;
 
-      // Check if preset world already exists in state
-      const existing = get().worlds[stableId] || get().worlds[presetId];
-      if (existing) {
-        get().setActiveWorld(existing.id);
-        return;
-      }
-
+      // Always instantiate fresh preset world to ensure presets (e.g. Blank Globe, Template)
+      // are never polluted by stale persisted data in IndexedDB
       const preset = builder();
       const now = Date.now();
       const newWorld: World = {
@@ -351,6 +411,7 @@ export const useWorldStore = create<WorldStore>()(
         s.worlds[stableId] = newWorld;
         s.activeWorldId = stableId;
       });
+      setStoredActiveWorldId(stableId);
       saveWorldToDB(newWorld).catch(() => {});
     },
 

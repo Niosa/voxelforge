@@ -122,7 +122,7 @@ export function WorldManagerModal({ isOpen, onClose }: Props) {
         </div>
 
         {/* Sample world presets */}
-        <div>
+        <div className="mb-4">
           <p className="text-xs text-slate-400 mb-2">Load a sample world:</p>
           <div className="flex flex-wrap gap-2">
             {SAMPLE_WORLD_PRESETS.map((preset) => (
@@ -132,6 +132,23 @@ export function WorldManagerModal({ isOpen, onClose }: Props) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Factory Reset Emergency Action */}
+        <div className="flex justify-end pt-2 border-t border-white/10">
+          <button
+            onClick={() => {
+              if (window.confirm('Wipe stored browser data and restore clean factory defaults?')) {
+                try { localStorage.clear(); } catch (_) {}
+                try { indexedDB.deleteDatabase('terraforge_db'); } catch (_) {}
+                window.location.reload();
+              }
+            }}
+            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 transition flex items-center gap-1.5"
+          >
+            <span>🧹</span>
+            <span>Reset App & Clear Saved Data</span>
+          </button>
         </div>
       </div>
     </div>

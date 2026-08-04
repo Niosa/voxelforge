@@ -38,7 +38,17 @@ export function WalkOverlay() {
 
   useEffect(() => {
     (window as any).__voxelforgeDescend = descend;
-    return () => { delete (window as any).__voxelforgeDescend; };
+    (window as any).__voxelforgeWalkTouchLook = (dx: number, dy: number) => {
+      _scene?.applyTouchLookDelta(dx, dy);
+    };
+    (window as any).__voxelforgeWalkTouchMove = (forward: number, side: number) => {
+      _scene?.applyTouchMovement(forward, side);
+    };
+    return () => {
+      delete (window as any).__voxelforgeDescend;
+      delete (window as any).__voxelforgeWalkTouchLook;
+      delete (window as any).__voxelforgeWalkTouchMove;
+    };
   }, [descend]);
 
   useEffect(() => {

@@ -8,15 +8,17 @@ import { TutorialModal } from '@/ui/tutorial/TutorialModal';
 import { DesignAssistPanel } from '@/ui/tools/DesignAssistPanel';
 import { useUiStore } from '@/state/uiStore';
 import { drawController } from '@/drawing/DrawController';
-
 import { useWorldStore } from '@/state/worldStore';
-
 import { useKeyboardShortcuts } from '@/ui/hooks/useKeyboardShortcuts';
-
 import { ProjectSettingsModal } from '@/ui/settings/ProjectSettingsModal';
 import { MinecraftHotbar } from '@/ui/layout/MinecraftHotbar';
 import { firstPersonController } from '@/globe/FirstPersonController';
 import { firstPersonBuilder } from '@/drawing/FirstPersonBuilder';
+import { CreativeInventoryModal } from '@/ui/firstPerson/CreativeInventoryModal';
+import { RealmStatsModal } from '@/ui/layout/RealmStatsModal';
+import { MapExportModal } from '@/ui/layout/MapExportModal';
+import { WeatherControlPanel } from '@/ui/layout/WeatherControlPanel';
+import { MobileControlsOverlay } from '@/ui/firstPerson/MobileControlsOverlay';
 
 export function AppShell() {
   const tool = useUiStore((s) => s.tool);
@@ -25,10 +27,15 @@ export function AppShell() {
   useKeyboardShortcuts();
 
   useEffect(() => {
-    drawController.init();
+    // Defer init until after GlobeView's mount effect has created the Cesium viewer.
+    // (GlobeView's [] effect and AppShell's [] effect both fire on mount; execution
+    // order is deterministic — GlobeView's fires first since it renders inside AppShell —
+    // but we add a microtask yield to guarantee the viewer handle is assigned.)
+    const timerId = setTimeout(() => {
+      drawController.init();
+    }, 0);
     useWorldStore.getState().initWorldFromPersistence();
 
-    // Auto-launch Dev Voxel Sandbox if URL contains ?mode=dev-voxel or ?dev=1
     if (typeof window !== 'undefined') {
       const search = window.location.search;
       if (search.includes('dev-voxel') || search.includes('dev=1')) {
@@ -39,6 +46,7 @@ export function AppShell() {
     }
 
     return () => {
+      clearTimeout(timerId);
       drawController.destroy();
     };
   }, []);
@@ -64,15 +72,26 @@ export function AppShell() {
       <TutorialModal />
       <ProjectSettingsModal />
       <MinecraftHotbar />
+      <CreativeInventoryModal />
+      <RealmStatsModal />
+      <MapExportModal />
+      <MobileControlsOverlay />
 
       <div className="pointer-events-auto">
         <DesignAssistPanel />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 flex flex-col">
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
         {!firstPersonActive && (
           <div className="pointer-events-auto">
             <TopBar />
+          </div>
+        )}
+
+        {/* Floating Weather Control Bar (Top Right) */}
+        {!firstPersonActive && (
+          <div className="pointer-events-auto absolute top-16 right-4 z-30">
+            <WeatherControlPanel />
           </div>
         )}
 
@@ -125,10 +144,8 @@ export function AppShell() {
               <span>✨ Stamp procedurally generated landmasses onto globe.</span>
             )}
 
-            {/* Type pills & smart borders only apply to entity-creation tools */}
             {(tool === 'drawPolygon' || tool === 'placePoint' || tool === 'freehandDraw' || tool === 'designAssist') && (
             <>
-            {/* Type Selector Pills */}
             <div className="flex items-center gap-1 border-l border-r border-white/15 px-3 py-0.5">
               <span className="text-[11px] text-slate-400 font-normal mr-1">Type:</span>
               {[
@@ -157,7 +174,6 @@ export function AppShell() {
               })}
             </div>
 
-            {/* Smart Borders Toggle */}
             <button
               type="button"
               onClick={() => useUiStore.getState().setSmartBordersEnabled(!useUiStore.getState().smartBordersEnabled)}

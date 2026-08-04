@@ -11,7 +11,7 @@ export interface VoxelEditMessage {
   blockTypes: Uint8Array;
 }
 
-const BLOCK_TYPE_MAP: Record<FirstPersonBuildingType | 'air', number> = {
+const BLOCK_TYPE_MAP: Record<string, number> = {
   'air': 0,
   'house': 1,
   'castle': 2,

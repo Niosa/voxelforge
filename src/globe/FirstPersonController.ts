@@ -138,7 +138,7 @@ export class FirstPersonController {
     voxelCoords.setAnchor(this.currentLon, this.currentLat, terrainH);
     firstPersonBuilder.init();
 
-    // Use static ground color & hide dynamic LoD imagery in walk mode for ultra performance
+    // Set smooth base color & hide imagery layers in walk mode to prevent low-altitude tile thrashing & texture flashing
     viewer.scene.globe.baseColor = Color.fromCssColorString('#2d5a27');
     for (let i = 0; i < viewer.imageryLayers.length; i++) {
       const layer = viewer.imageryLayers.get(i);
@@ -285,7 +285,7 @@ export class FirstPersonController {
 
   private handleContextMenu = (e: MouseEvent) => {
     if (this.active) {
-      e.preventDefault(); // Prevent right-click context menu in Minecraft 1st person mode
+      e.preventDefault();
     }
   };
 
@@ -301,13 +301,14 @@ export class FirstPersonController {
 
   private handleMouseDown = (e: MouseEvent) => {
     if (!this.active) return;
-
-    // Right Click (button === 2) places voxel block in Minecraft mode!
     if (e.button === 2) {
       firstPersonBuilder.placeCurrentStructure();
-    } else if (e.button === 0 && this.isPointerLocked) {
-      // Left Click (button === 0) deletes targeted voxel block in Minecraft mode!
-      firstPersonBuilder.deleteTargetedBlock();
+    } else if (e.button === 0) {
+      if (e.shiftKey) {
+        firstPersonBuilder.deleteTargetedBlock();
+      } else {
+        firstPersonBuilder.placeCurrentStructure();
+      }
     }
   };
 
@@ -433,59 +434,50 @@ export class FirstPersonController {
     this.velocityForward = this.velocityForward * friction + desiredForward;
     this.velocitySide = this.velocitySide * friction + desiredSide;
 
-    if (Math.abs(this.velocityForward) > 0.000000001 || Math.abs(this.velocitySide) > 0.000000001) {
-      const cosH = Math.cos(this.heading);
-      const sinH = Math.sin(this.heading);
+    const cosH = Math.cos(this.heading);
+    const sinH = Math.sin(this.heading);
 
-      // Candidate position
-      const deltaLon = (this.velocitySide * cosH + this.velocityForward * sinH);
-      const deltaLat = (this.velocityForward * cosH - this.velocitySide * sinH);
+    const deltaLon = (this.velocitySide * cosH + this.velocityForward * sinH);
+    const deltaLat = (this.velocityForward * cosH - this.velocitySide * sinH);
 
-      const nextLon = this.currentLon + deltaLon;
-      const nextLat = this.currentLat + deltaLat;
+    const nextLon = this.currentLon + deltaLon;
+    const nextLat = this.currentLat + deltaLat;
 
-      // Solid Voxel Collision & Step-Up Physics Check
-      const viewer = getViewer();
-      const carto = Cartographic.fromDegrees(nextLon, nextLat);
-      const currentGroundH = viewer ? (viewer.scene.globe.getHeight(carto) ?? 0) : 0;
-      const nextWorldPos = Cartesian3.fromDegrees(nextLon, nextLat, currentGroundH);
-      const nextLocalPos = voxelCoords.worldToLocal(nextWorldPos);
-      const { cx, cy, cz, lx, ly } = voxelCoords.localToChunk(nextLocalPos);
+    // Solid Voxel Collision & Ground Height System (always evaluated)
+    const viewer = getViewer();
+    const carto = Cartographic.fromDegrees(nextLon, nextLat);
+    const currentGroundH = viewer ? (viewer.scene.globe.getHeight(carto) ?? 0) : 0;
+    const nextWorldPos = Cartesian3.fromDegrees(nextLon, nextLat, currentGroundH);
+    const nextLocalPos = voxelCoords.worldToLocal(nextWorldPos);
+    const { cx, cy, cz, lx, ly } = voxelCoords.localToChunk(nextLocalPos);
 
-      let maxBlockTopZ = 0; // Local ENU meters above ground anchor
-      const chunk = voxelManager.getChunk(cx, cy, cz);
-      if (chunk) {
-        for (let checkZ = 0; checkZ < 32; checkZ++) {
-          if (chunk.getBlock(lx, ly, checkZ)) {
-            maxBlockTopZ = Math.max(maxBlockTopZ, (checkZ + 1) * 1.0);
-          }
+    let maxBlockTopZ = 0; // Local ENU meters above ground anchor
+    const chunk = voxelManager.getChunk(cx, cy, cz);
+    if (chunk) {
+      for (let checkZ = 0; checkZ < 32; checkZ++) {
+        if (chunk.getBlock(lx, ly, checkZ)) {
+          maxBlockTopZ = Math.max(maxBlockTopZ, (checkZ + 1) * 1.0);
         }
       }
+    }
 
-      const playerFeetZ = this.currentHeight - 1.62;
+    const playerFeetZ = this.currentHeight - 1.62;
+    const targetGroundEyeH = (maxBlockTopZ > 0) ? (maxBlockTopZ + 1.62) : 1.62;
 
-      if (!this.isFlying && maxBlockTopZ > 0) {
-        const stepDiff = maxBlockTopZ - playerFeetZ;
-        if (stepDiff > 0.05 && stepDiff <= 1.15) {
-          // Automatic 1-block step up onto block top!
-          this.groundEyeHeight = maxBlockTopZ + 1.62;
-          this.currentLon = nextLon;
-          this.currentLat = nextLat;
-        } else if (stepDiff > 1.15) {
-          // Solid wall collision: block movement into wall!
-          this.velocityForward = 0;
-          this.velocitySide = 0;
-        } else {
-          this.currentLon = nextLon;
-          this.currentLat = nextLat;
-        }
-      } else {
-        if (!this.isFlying && maxBlockTopZ === 0) {
-          this.groundEyeHeight = 1.62;
-        }
-        this.currentLon = nextLon;
-        this.currentLat = nextLat;
-      }
+    if (!this.isFlying && maxBlockTopZ > 0 && (playerFeetZ < maxBlockTopZ - 0.05)) {
+      // Solid wall collision: stop horizontal movement into wall (auto-jump disabled!)
+      this.velocityForward = 0;
+      this.velocitySide = 0;
+    } else {
+      this.currentLon = nextLon;
+      this.currentLat = nextLat;
+    }
+
+    this.groundEyeHeight = targetGroundEyeH;
+
+    // If standing higher than groundEyeHeight (stepping off a block ledge), trigger gravity fall
+    if (!this.isFlying && this.isGrounded && this.currentHeight > this.groundEyeHeight + 0.05) {
+      this.isGrounded = false;
     }
 
     // 3. Jump & Gravity Physics System (Minecraft Java 1.20 Exact Constants)

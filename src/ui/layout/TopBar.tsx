@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { history } from '@/state/history/HistoryStack';
@@ -24,7 +24,6 @@ import {
   getGlobalShowFillOverlay,
   syncEntitiesToCesium,
 } from '@/globe/entitySync';
-import { saveWorldToDB } from '@/persistence/idb';
 import { WorldManagerModal } from '@/ui/layout/WorldManagerModal';
 import {
   searchLocalEntities,
@@ -33,6 +32,10 @@ import {
 } from '@/search/searchIndex';
 import { flyToEntity } from '@/globe/camera';
 import { HamburgerMenu } from '@/ui/layout/HamburgerMenu';
+
+import { generateRandomRealm } from '@/geo/realmGenerator';
+import { soundEngine } from '@/audio/soundEngine';
+import { cinematicTour } from '@/globe/cinematicTour';
 
 export function TopBar() {
   const world = useWorldStore((s) => s.world);
@@ -45,6 +48,12 @@ export function TopBar() {
   const trafficEnabled = useUiStore((s) => s.trafficEnabled);
   const setTrafficEnabled = useUiStore((s) => s.setTrafficEnabled);
   const setHamburgerMenuOpen = useUiStore((s) => s.setHamburgerMenuOpen);
+
+  const soundMuted = useUiStore((s) => s.soundMuted);
+  const setSoundMuted = useUiStore((s) => s.setSoundMuted);
+  const setRealmStatsOpen = useUiStore((s) => s.setRealmStatsOpen);
+  const setMapExportOpen = useUiStore((s) => s.setMapExportOpen);
+  const cinematicActive = useUiStore((s) => s.cinematicTourActive);
 
   const [imageryStyle, setImageryStyle] = useState<ImageryStyle>(
     getCurrentImageryStyle(),
@@ -74,10 +83,17 @@ export function TopBar() {
     setTerrain3D(getIsTerrain3DActive());
   }, [world.id]);
 
+  // Skip auto-save on the very first render — the initial `world` value comes
+  // from the store before IndexedDB persistence has resolved and could be the
+  // blank default or a stale preset, not the user's real last world.
+  // Subsequent changes (user edits, world switches) are genuine and should save.
+  const isFirstRenderRef = useRef(true);
   useEffect(() => {
-    saveWorldToDB(world).then(() => {
-      setLastSavedTime('Saved ✓');
-    });
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    useWorldStore.getState().saveActiveWorld().catch(() => {});
   }, [world]);
 
   useEffect(() => {
@@ -146,7 +162,6 @@ export function TopBar() {
     }
   };
 
-  // loadSampleWorld takes a preset ID string
   const handleSelectSample = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     if (val) {
@@ -316,6 +331,73 @@ export function TopBar() {
         <div className="flex-1 hidden md:block" />
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* 🎲 Forge Realm Generator */}
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playClick();
+              generateRandomRealm();
+            }}
+            className="flex items-center gap-1 rounded-xl border border-amber-500/40 bg-amber-500/20 px-2.5 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition shadow-sm cursor-pointer"
+            title="Procedurally generate a complete new fantasy world"
+          >
+            <span>🎲</span>
+            <span className="hidden sm:inline">Forge Realm</span>
+          </button>
+
+          {/* 📊 Realm Dashboard */}
+          <button
+            type="button"
+            onClick={() => setRealmStatsOpen(true)}
+            className="flex items-center gap-1 rounded-xl border border-teal-500/30 bg-teal-500/10 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-teal-500/20 transition shadow-sm cursor-pointer"
+            title="Open Realm Statistics & Census Dashboard"
+          >
+            <span>📊</span>
+            <span className="hidden sm:inline">Stats</span>
+          </button>
+
+          {/* 🖼️ Map Poster Export */}
+          <button
+            type="button"
+            onClick={() => setMapExportOpen(true)}
+            className="flex items-center gap-1 rounded-xl border border-purple-500/30 bg-purple-500/10 px-2.5 py-1.5 text-xs font-semibold text-purple-200 hover:bg-purple-500/20 transition shadow-sm cursor-pointer"
+            title="Export high-res cartography poster image"
+          >
+            <span>🖼️</span>
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          {/* 🎬 Cinematic Tour */}
+          <button
+            type="button"
+            onClick={() => {
+              if (cinematicActive) cinematicTour.stopTour();
+              else cinematicTour.startTour();
+            }}
+            className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold border transition cursor-pointer ${
+              cinematicActive
+                ? 'border-rose-500 bg-rose-500/30 text-rose-200 animate-pulse'
+                : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/15'
+            }`}
+            title="Toggle automated cinematic fly-through tour"
+          >
+            <span>🎬</span>
+            <span>{cinematicActive ? 'Stop Tour' : 'Tour'}</span>
+          </button>
+
+          {/* 🔊 Mute/Unmute Audio */}
+          <button
+            type="button"
+            onClick={() => {
+              const muted = soundEngine.toggleMute();
+              setSoundMuted(muted);
+            }}
+            className="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/15 transition cursor-pointer"
+            title="Toggle Web Audio Sound Engine"
+          >
+            {soundMuted ? '🔇 Muted' : '🔊 Sound'}
+          </button>
+
           <button
             type="button"
             onClick={() => setWorldModalOpen(true)}

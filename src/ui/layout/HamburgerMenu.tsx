@@ -12,12 +12,14 @@ import {
 } from '@/globe/CesiumViewer';
 import {
   syncEntitiesToCesium,
-  getGlobalShowFillOverlay,
-  setGlobalShowFillOverlay,
   resetEntitySyncState,
 } from '@/globe/entitySync';
 import { syncWorldBordersData } from '@/globe/borderOverlay';
 import { firstPersonController } from '@/globe/FirstPersonController';
+import { generateRandomRealm } from '@/geo/realmGenerator';
+import { soundEngine } from '@/audio/soundEngine';
+import { questManager } from '@/globe/questManager';
+import { cinematicTour } from '@/globe/cinematicTour';
 
 export function HamburgerMenu() {
   const isOpen = useUiStore((s) => s.hamburgerMenuOpen);
@@ -84,8 +86,6 @@ export function HamburgerMenu() {
 
   const handleTogglePerformanceMode = () => {
     setPerformanceMode(!performanceMode);
-    // Apply viewer settings immediately, then force a full entity re-sync so
-    // biome textures regenerate at the new resolution and border gating applies.
     applyPerformanceModeSettings();
     setTimeout(() => {
       const viewer = getViewer();
@@ -102,10 +102,6 @@ export function HamburgerMenu() {
     setTimeout(triggerRedraw, 50);
   };
 
-  const handleToggleFill = () => {
-    setGlobalShowFillOverlay(!getGlobalShowFillOverlay());
-    setTimeout(triggerRedraw, 50);
-  };
 
   const handleToggleLighting = () => {
     setGlobeAtmosphereLighting(!getIsLightingActive());
@@ -140,7 +136,75 @@ export function HamburgerMenu() {
         </div>
 
         {/* Drawer Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6 text-sm">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6 text-sm scrollbar-thin">
+          {/* Quick Interactive Actions */}
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-3 space-y-2">
+            <span className="font-bold text-amber-300 text-xs uppercase tracking-wider block">
+              🎲 Realm Creation & Exploration
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setOpen(false);
+                  generateRandomRealm();
+                }}
+                className="rounded-xl border border-amber-500/40 bg-amber-500/20 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>🎲</span><span>Forge Realm</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setOpen(false);
+                  useUiStore.getState().setRealmStatsOpen(true);
+                }}
+                className="rounded-xl border border-teal-500/40 bg-teal-500/20 py-2 text-xs font-bold text-teal-200 hover:bg-teal-500/30 transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>📊</span><span>Dashboard</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setOpen(false);
+                  useUiStore.getState().setMapExportOpen(true);
+                }}
+                className="rounded-xl border border-purple-500/40 bg-purple-500/20 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/30 transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>🖼️</span><span>Map Export</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setOpen(false);
+                  questManager.initQuests();
+                  useUiStore.getState().setQuestModeActive(true);
+                }}
+                className="rounded-xl border border-cyan-500/40 bg-cyan-500/20 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/30 transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>🔮</span><span>Relic Quest</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                cinematicTour.startTour();
+              }}
+              className="w-full rounded-xl border border-rose-500/40 bg-rose-500/20 py-2 text-xs font-bold text-rose-200 hover:bg-rose-500/30 transition flex items-center justify-center gap-1.5 cursor-pointer mt-1"
+            >
+              <span>🎬</span><span>Launch Cinematic Orbit Tour</span>
+            </button>
+          </div>
+
           {/* Section 0: Project & World Settings Button */}
           <div className="rounded-2xl border border-teal-500/30 bg-teal-950/20 p-3 flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -312,18 +376,6 @@ export function HamburgerMenu() {
               />
             </label>
 
-            <label className="flex items-center justify-between p-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition cursor-pointer">
-              <div className="flex flex-col">
-                <span className="font-medium text-slate-200">Polygon Fill Overlay</span>
-                <span className="text-[10px] text-slate-400">Translucent biome color fill</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={getGlobalShowFillOverlay()}
-                onChange={handleToggleFill}
-                className="w-4 h-4 rounded accent-teal-500 cursor-pointer"
-              />
-            </label>
 
             <label className="flex items-center justify-between p-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition cursor-pointer">
               <div className="flex flex-col">

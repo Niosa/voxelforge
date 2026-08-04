@@ -271,15 +271,19 @@ function generateSatelliteBlendShader(
   const south = options.south ?? -90;
   const north = options.north ?? 90;
 
+  const seedVal = hashSeed(options.seedStr || options.biome || 'terra');
+  const sLon = ((seedVal % 100) - 50) * 0.1;
+  const sLat = (((seedVal * 13) % 100) - 50) * 0.1;
+
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const u = x / W;
       const v = y / H;
 
-      const lon = west + u * (east - west);
-      const lat = north - v * (north - south);
+      const lon = (west + u * (east - west)) + sLon;
+      const lat = (north - v * (north - south)) + sLat;
 
-      // Geographically anchored world-space noise (streamlined for 60 FPS performance)
+      // Geographically & seed-anchored world-space noise
       const elev = noise.fbm(lon * 0.05, lat * 0.05, 3);
       const detail = noise.noise2D(lon * 1.2, lat * 1.2);
       const lakeNoise = noise.fbm(lon * 0.12 + 15.2, lat * 0.12 + 8.1, 2);

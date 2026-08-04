@@ -8,6 +8,8 @@ import {
   Math as CesiumMath,
   SceneMode,
   SingleTileImageryProvider,
+  UrlTemplateImageryProvider,
+  OpenStreetMapImageryProvider,
   createOsmBuildingsAsync,
   createGooglePhotorealistic3DTileset,
   WebMercatorTilingScheme,
@@ -17,7 +19,6 @@ import {
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import type { TerraEntity } from '@/entities/types';
 import { getBiomeTextureCanvas, clearBiomeTextureCaches, type BiomeType } from '@/geo/biomeTexture';
-import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { LruCache } from '@/utils/lruCache';
 
@@ -536,6 +537,7 @@ function renderWorldAnchoredCity(
 }
 
 export type ImageryStyle =
+  | 'blank'
   | 'osm'
   | 'satellite'
   | 'opentopo'
@@ -1065,17 +1067,11 @@ export function setFantasyWorldFlag(fantasy: boolean): void {
       setGoogle3DBuildings(false);
     }
   }
-
-  if (viewer && !viewer.isDestroyed()) {
-    // Read the active world from the store so entities and theme are always
-    // available regardless of whether the viewer was just created or already
-    // existed (singleton early-return path).
-    const activeWorld = useWorldStore.getState().world;
-    const entities = fantasy ? (activeWorld.entities ?? {}) : undefined;
-    const theme = activeWorld.properties?.theme || 'medieval';
-    setGlobeImageryStyle(currentImageryStyle, entities, theme);
-    syncWorldBordersData(viewer);
-  }
+  // NOTE: Do NOT call setGlobeImageryStyle here. GlobeView's effect already
+  // calls it immediately after setFantasyWorldFlag with the correct entity
+  // snapshot captured at render time. A second call here (reading the store
+  // at an unpredictable moment) races with that and installs a second imagery
+  // provider on top of the correct one (Bug 4 fix).
 }
 
 /**
@@ -1169,25 +1165,13 @@ export function setGlobeAtmosphereLighting(enabled: boolean): void {
   viewer.scene.globe.showGroundAtmosphere = enabled;
 }
 
-export function updateFantasyImageryEntities(entities: Record<string, TerraEntity>): void {
+export function updateFantasyImageryEntities(
+  entities: Record<string, TerraEntity>,
+  theme = 'medieval',
+): void {
   if (!viewer || viewer.isDestroyed() || !isFantasyWorld) return;
-  const count = viewer.imageryLayers.length;
-  let updated = false;
-  for (let i = 0; i < count; i++) {
-    const layer = viewer.imageryLayers.get(i);
-    const provider = layer?.imageryProvider as any;
-    if (provider && typeof provider.updateEntities === 'function') {
-      provider.updateEntities(entities);
-      // Toggle layer visibility to flush Cesium's cached GPU tile textures
-      // and force immediate real-time re-rendering of visible fantasy tile imagery.
-      layer.show = false;
-      layer.show = true;
-      updated = true;
-    }
-  }
-  if (updated) {
-    viewer.scene.requestRender();
-  }
+  if (currentImageryStyle === 'blank' || currentImageryStyle === 'stylized') return;
+  setGlobeImageryStyle(currentImageryStyle, entities, theme);
 }
 
 export function setGlobeImageryStyle(
@@ -1201,29 +1185,98 @@ export function setGlobeImageryStyle(
   try {
     viewer.imageryLayers.removeAll();
 
-    if (style === 'stylized') {
-      const url = getParchmentTextureUrl();
-      if (url) {
+    if (style === 'blank') {
+      viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
+      viewer.scene.requestRender();
+      return;
+    }
+
+    if (isFantasyWorld) {
+      if (style === 'stylized') {
+        const url = getParchmentTextureUrl();
+        if (url) {
+          try {
+            viewer.imageryLayers.addImageryProvider(
+              new SingleTileImageryProvider({ url }),
+            );
+          } catch (e) {
+            console.warn('Parchment texture failed:', e);
+          }
+        }
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
+      } else {
+        const activeEntities = entities || {};
         try {
           viewer.imageryLayers.addImageryProvider(
-            new SingleTileImageryProvider({ url }),
+            new ProceduralFantasyImageryProvider(activeEntities, theme) as any,
           );
         } catch (e) {
-          console.warn('Parchment texture failed:', e);
+          console.warn('Fantasy imagery provider failed, using solid color:', e);
         }
+        viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
       }
-      viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
-    } else {
-      const activeEntities = entities || {};
-      try {
-        viewer.imageryLayers.addImageryProvider(
-          new ProceduralFantasyImageryProvider(activeEntities, theme) as any,
-        );
-      } catch (e) {
-        console.warn('Fantasy imagery provider failed, using solid color:', e);
-      }
-      viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
+
+      viewer.scene.requestRender();
+      return;
     }
+
+    try {
+      switch (style) {
+        case 'osm':
+          viewer.imageryLayers.addImageryProvider(
+            new OpenStreetMapImageryProvider({
+              url: 'https://tile.openstreetmap.org/',
+            }),
+          );
+          break;
+
+        case 'carto-light':
+          viewer.imageryLayers.addImageryProvider(
+            new UrlTemplateImageryProvider({
+              url: 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+              credit: 'Map tiles by CARTO, data by OpenStreetMap contributors',
+            }),
+          );
+          break;
+
+        case 'carto-dark':
+          viewer.imageryLayers.addImageryProvider(
+            new UrlTemplateImageryProvider({
+              url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              credit: 'Map tiles by CARTO, data by OpenStreetMap contributors',
+            }),
+          );
+          break;
+
+        case 'opentopo':
+          viewer.imageryLayers.addImageryProvider(
+            new UrlTemplateImageryProvider({
+              url: 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+              credit: 'Map data: OpenStreetMap contributors, map style: OpenTopoMap',
+            }),
+          );
+          break;
+
+        case 'satellite':
+          viewer.imageryLayers.addImageryProvider(
+            new UrlTemplateImageryProvider({
+              url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+              credit: 'Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            }),
+          );
+          break;
+
+        case 'stylized':
+        default:
+          viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
+          break;
+      }
+    } catch (e) {
+      console.warn('Real-world imagery provider failed, using solid color:', e);
+    }
+
+    viewer.scene.globe.baseColor = Color.fromCssColorString('#071422');
+    viewer.scene.requestRender();
   } catch (err) {
     console.warn('Imagery provider update warning:', err);
   }
@@ -1305,10 +1358,13 @@ export function createTerraforgeViewer(container: HTMLElement): Viewer {
     }
   });
 
-  // Set initial imagery layer & load world borders according to active world
-  const activeWorld = useWorldStore.getState().world;
+  // Start with an empty fantasy tile provider — GlobeView's sync effect
+  // will call setGlobeImageryStyle with the correct world's entities once
+  // the viewer is ready and initWorldFromPersistence() has resolved.
+  // Passing Middle-earth entities here would make them visible before the
+  // active world is known (Bug 1 fix).
   setFantasyWorldFlag(true);
-  setGlobeImageryStyle('satellite', activeWorld.entities, activeWorld.properties?.theme || 'medieval');
+  setGlobeImageryStyle('satellite', {}, 'medieval');
   syncWorldBordersData(viewer);
 
   viewer.camera.setView({

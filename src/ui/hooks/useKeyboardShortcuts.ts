@@ -6,17 +6,12 @@ import { DeleteEntityCommand } from '@/state/history/commands';
 import { drawController } from '@/drawing/DrawController';
 import { flyToEntity } from '@/globe/camera';
 import { recenterGlobe } from '@/globe/CesiumViewer';
+import { firstPersonController } from '@/globe/FirstPersonController';
 import type { ToolMode } from '@/entities/types';
 
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger orbital hotkeys if in First-Person mode
-      if (useUiStore.getState().firstPersonActive || useUiStore.getState().tool === 'walk') {
-        return;
-      }
-
-      // Don't trigger hotkeys if typing inside form inputs or textareas
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -28,17 +23,23 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      if (useUiStore.getState().firstPersonActive || useUiStore.getState().tool === 'walk') {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          firstPersonController.exit();
+        }
+        return;
+      }
+
       const key = e.key;
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
 
-      // Undo: Ctrl+Z / Cmd+Z (without Shift)
       if (isCtrlOrCmd && key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
         history.undo();
         return;
       }
 
-      // Redo: Ctrl+Y or Ctrl+Shift+Z / Cmd+Shift+Z
       if (
         (isCtrlOrCmd && key.toLowerCase() === 'y') ||
         (isCtrlOrCmd && e.shiftKey && key.toLowerCase() === 'z')
@@ -48,7 +49,6 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Escape: Cancel active drawing / clear selection
       if (key === 'Escape') {
         e.preventDefault();
         drawController.cancelDrawing();
@@ -57,7 +57,6 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Delete / Backspace: Delete selected entity
       if (key === 'Delete' || key === 'Backspace') {
         const selectedId = useWorldStore.getState().selectedId;
         if (selectedId) {
@@ -68,7 +67,6 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Space or R: Fly to selected entity or recenter globe
       if (key === ' ' || key === 'Spacebar' || key.toLowerCase() === 'r') {
         const { selectedId, world } = useWorldStore.getState();
         if (selectedId && world.entities[selectedId]) {
@@ -81,7 +79,6 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Tool Switching Hotkeys: 1-8
       const toolMap: Record<string, ToolMode> = {
         '1': 'select',
         '2': 'pan',
@@ -91,10 +88,15 @@ export function useKeyboardShortcuts(): void {
         '6': 'freehandDraw',
         '7': 'addPart',
         '8': 'eraseRegion',
+        '9': 'walk',
       };
 
       if (toolMap[key]) {
         e.preventDefault();
+        if (key === '9') {
+          firstPersonController.enter();
+          return;
+        }
         if (toolMap[key] !== 'drawPolygon') {
           drawController.cancelDrawing();
         }
