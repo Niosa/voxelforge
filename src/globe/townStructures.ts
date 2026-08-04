@@ -42,9 +42,12 @@ function isPointInsideEntityGeometry(pt: [number, number], geom: TerraGeometry):
   return false;
 }
 
+// Bounded caches: facade data URLs and material wrappers are seeded per-entity,
+// so unbounded maps grow forever during long sessions on low-memory devices.
 const facadeCache = new LruCache<string, string>(100);
 const materialCache = new LruCache<string, ImageMaterialProperty>(100);
 
+// Distance display condition: buildings display within 0 - 3,500m for smooth high FPS
 const buildingDistanceCondition = new DistanceDisplayCondition(0, 3_500);
 
 function getCachedImageMaterial(imageUrl: string): ImageMaterialProperty {
@@ -59,6 +62,7 @@ function getCachedImageMaterial(imageUrl: string): ImageMaterialProperty {
   return mat;
 }
 
+/** 1. Glass Curtain Wall Facade (Blue / Cyan / Emerald) */
 function getCurtainWallFacade(seed: number): string {
   const key = `curtain_${seed}`;
   const cached = facadeCache.get(key);
@@ -83,6 +87,7 @@ function getCurtainWallFacade(seed: number): string {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 128, 256);
 
+  // Horizontal spandrel bands & vertical glass columns
   for (let y = 0; y < 256; y += 16) {
     ctx.fillStyle = p.spandrel;
     ctx.fillRect(0, y, 128, 3);
@@ -99,6 +104,7 @@ function getCurtainWallFacade(seed: number): string {
   return dataUrl;
 }
 
+/** 2. Brutalist Concrete Core Facade */
 function getConcreteCoreFacade(seed: number): string {
   const key = `concrete_${seed}`;
   const cached = facadeCache.get(key);
@@ -113,6 +119,7 @@ function getConcreteCoreFacade(seed: number): string {
   ctx.fillStyle = '#475569';
   ctx.fillRect(0, 0, 128, 256);
 
+  // Punched windows in heavy concrete frames
   for (let y = 10; y < 246; y += 18) {
     ctx.fillStyle = '#334155';
     ctx.fillRect(0, y - 2, 128, 2);
@@ -131,6 +138,7 @@ function getConcreteCoreFacade(seed: number): string {
   return dataUrl;
 }
 
+/** 3. Art-Deco Setback Metallic Facade */
 function getSetbackTowerFacade(seed: number): string {
   const key = `setback_${seed}`;
   const cached = facadeCache.get(key);
@@ -145,6 +153,7 @@ function getSetbackTowerFacade(seed: number): string {
   ctx.fillStyle = '#1e1b4b';
   ctx.fillRect(0, 0, 128, 256);
 
+  // Bronze trim vertical columns
   ctx.strokeStyle = '#d97706';
   ctx.lineWidth = 2;
   for (let x = 2; x < 128; x += 16) {
@@ -164,6 +173,7 @@ function getSetbackTowerFacade(seed: number): string {
   return dataUrl;
 }
 
+/** 4. Residential Brick/Stucco Facade */
 function getResidentialFacade(seed: number): string {
   const key = `res_${seed}`;
   const cached = facadeCache.get(key);
@@ -181,11 +191,14 @@ function getResidentialFacade(seed: number): string {
 
   for (let y = 12; y < 244; y += 20) {
     for (let x = 10; x < 118; x += 20) {
+      // Window frame
       ctx.fillStyle = '#f5f5f4';
       ctx.fillRect(x - 1, y - 1, 12, 14);
+      // Window glass
       const isLit = ((x * 5 + y * 19 + seed * 41) % 100) < 30;
       ctx.fillStyle = isLit ? '#fef08a' : '#1e293b';
       ctx.fillRect(x, y, 10, 12);
+      // Balcony ledge
       ctx.fillStyle = '#44403c';
       ctx.fillRect(x - 2, y + 12, 14, 3);
     }
@@ -196,6 +209,7 @@ function getResidentialFacade(seed: number): string {
   return dataUrl;
 }
 
+/** 5. Industrial Metal Panel Facade */
 function getIndustrialFacade(seed: number): string {
   const key = `ind_${seed}`;
   const cached = facadeCache.get(key);
@@ -210,12 +224,14 @@ function getIndustrialFacade(seed: number): string {
   ctx.fillStyle = '#374151';
   ctx.fillRect(0, 0, 128, 256);
 
+  // Corrugated vertical lines
   ctx.strokeStyle = '#1f2937';
   ctx.lineWidth = 1;
   for (let x = 0; x < 128; x += 6) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
   }
 
+  // Large loading dock bays at bottom
   ctx.fillStyle = '#111827';
   ctx.fillRect(12, 200, 36, 48);
   ctx.fillRect(80, 200, 36, 48);
@@ -225,6 +241,7 @@ function getIndustrialFacade(seed: number): string {
   return dataUrl;
 }
 
+/** Generates central mega skyscraper facade */
 function getMegaSkyscraperFacade(): string {
   const key = 'mega';
   const cached = facadeCache.get(key);
@@ -236,6 +253,7 @@ function getMegaSkyscraperFacade(): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
+  // Gradient background
   const grad = ctx.createLinearGradient(0, 0, 0, 512);
   grad.addColorStop(0, '#0284c7');
   grad.addColorStop(0.5, '#0369a1');
@@ -243,7 +261,9 @@ function getMegaSkyscraperFacade(): string {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 256, 512);
 
+  // High density modern panels & lit windows
   for (let y = 16; y < 496; y += 16) {
+    // Spandrel band
     ctx.fillStyle = '#0284c7';
     ctx.fillRect(0, y, 256, 3);
 
@@ -253,6 +273,7 @@ function getMegaSkyscraperFacade(): string {
     }
   }
 
+  // Steel beams
   ctx.strokeStyle = '#bae6fd';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -266,6 +287,7 @@ function getMegaSkyscraperFacade(): string {
   return dataUrl;
 }
 
+/** Generates timber framed plaster wall for medieval/fantasy */
 function getMedievalFacadeTexture(colorHex: string): string {
   const key = `med_${colorHex}`;
   const cached = facadeCache.get(key);
@@ -277,9 +299,11 @@ function getMedievalFacadeTexture(colorHex: string): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
+  // Plaster wall backing
   ctx.fillStyle = '#f5f5dc';
   ctx.fillRect(0, 0, 128, 128);
 
+  // Timber beams
   ctx.strokeStyle = '#5c4033';
   ctx.lineWidth = 4;
   for (let x = 16; x < 128; x += 32) {
@@ -288,6 +312,7 @@ function getMedievalFacadeTexture(colorHex: string): string {
   for (let y = 16; y < 128; y += 32) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(128, y); ctx.stroke();
   }
+  // Diagonals
   ctx.beginPath();
   ctx.moveTo(0, 0); ctx.lineTo(128, 128);
   ctx.moveTo(128, 0); ctx.lineTo(0, 128);
@@ -298,6 +323,10 @@ function getMedievalFacadeTexture(colorHex: string): string {
   return dataUrl;
 }
 
+/**
+ * Procedural 3D City & Building Generator.
+ * Generates high-detail Google Earth quality architectural layouts for preset and user-created cities/towns.
+ */
 export function createTownStructureEntities(
   _viewer: Viewer,
   entity: TerraEntity,
@@ -323,6 +352,7 @@ export function createTownStructureEntities(
     let gridPoints: { lon: number; lat: number; dist: number; seed: number }[] = [];
 
     if (isPolygonEntity) {
+      // Calculate geographic bounding box of freehand city polygon
       let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
       const rings: [number, number][][] = [];
       if (entity.geometry.type === 'Polygon') {
@@ -359,6 +389,7 @@ export function createTownStructureEntities(
         }
       }
 
+      // If polygon is narrow or small, fall back to centroid grid
       if (gridPoints.length === 0) {
         const gridLimit = isCity ? 3 : 2;
         const stepFall = 0.0006;
@@ -374,6 +405,7 @@ export function createTownStructureEntities(
         }
       }
     } else {
+      // Point City: Radial Grid around centroid
       const gridLimit = isCity ? 3 : 2;
       const step = 0.00075;
       for (let dx = -gridLimit; dx <= gridLimit; dx++) {
@@ -388,28 +420,32 @@ export function createTownStructureEntities(
       }
     }
 
+    // Area/population-based desired building count with district-type multiplier.
+    // Sort closest-first before slicing so the denser downtown core always wins.
     const entityArea = getEntityArea(entity);
-    const population = typeof entity.properties?.population === 'number' ? entity.properties.population : 0;
+    const population = typeof entity.properties?.population === 'number'
+      ? entity.properties.population
+      : 0;
 
     let desiredBuildings = Math.max(4, Math.ceil(entityArea / 5000));
     if (population > 0) {
       desiredBuildings = Math.max(desiredBuildings, Math.ceil(population / 100));
     }
 
-    const districtMultiplier =
+    const multiplier =
       districtType === 'downtown' ? 1.5 :
       districtType === 'commercial' ? 1.2 :
       districtType === 'residential' ? 0.8 :
       districtType === 'industrial' ? 0.7 :
-      1.0;
+      1;
 
-    desiredBuildings = Math.ceil(desiredBuildings * districtMultiplier);
+    const isTouch = typeof navigator !== 'undefined' &&
+      ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
+    const cap = isTouch ? 12 : 24;
 
-    const isTouch = typeof navigator !== 'undefined' && ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
-    const maxBuildings = isTouch ? 12 : 24;
     gridPoints = gridPoints
       .sort((a, b) => a.dist - b.dist)
-      .slice(0, Math.min(desiredBuildings, maxBuildings));
+      .slice(0, Math.min(Math.ceil(desiredBuildings * multiplier), cap));
 
     for (const pt of gridPoints) {
       const bLng = pt.lon;
@@ -426,215 +462,224 @@ export function createTownStructureEntities(
       let isTwinTower = false;
 
       if (dist <= 1.2) {
+        // Zone 1: Downtown Financial High-Rise Skyscraper District (Height 220 - 480m)
         height = Math.max(220, (isCity ? 450 : 260) - dist * 45 + (seed % 70));
         wD = 38 + (seed % 22);
         wH = 38 + ((seed * 3) % 22);
-        facadeUrl = districtType === 'residential' || districtType === 'industrial'
-          ? getResidentialFacade(seed)
-          : (seed % 2 === 0) ? getCurtainWallFacade(seed) : getSetbackTowerFacade(seed);
+        facadeUrl = (seed % 2 === 0) ? getCurtainWallFacade(seed) : getSetbackTowerFacade(seed);
         if (seed % 5 === 0) isCylinder = true;
         else if (seed % 3 === 0) isSetback = true;
         else if (seed % 7 === 0) isTwinTower = true;
       } else if (dist <= 2.2) {
+        // Zone 2: Commercial Mid-Rise & Office District (Height 100 - 230m)
         height = Math.max(100, (isCity ? 230 : 130) - dist * 35 + (seed % 45));
         wD = 42 + (seed % 25);
         wH = 32 + ((seed * 7) % 22);
-        facadeUrl = districtType === 'industrial'
-          ? getIndustrialFacade(seed)
-          : (seed % 2 === 0) ? getConcreteCoreFacade(seed) : getCurtainWallFacade(seed);
+        facadeUrl = (seed % 2 === 0) ? getConcreteCoreFacade(seed) : getCurtainWallFacade(seed);
         if (seed % 6 === 0) isCylinder = true;
       } else {
+        // Zone 3: Residential & Industrial Zoning Fringe (Height 35 - 110m)
         height = Math.max(35, (isCity ? 110 : 55) + (seed % 40));
         wD = 46 + (seed % 20);
         wH = 26 + ((seed * 11) % 20);
-        facadeUrl = districtType === 'residential'
-          ? getResidentialFacade(seed)
-          : districtType === 'industrial'
-          ? getIndustrialFacade(seed)
-          : (seed % 2 === 0) ? getResidentialFacade(seed) : getIndustrialFacade(seed);
+        facadeUrl = (seed % 2 === 0) ? getResidentialFacade(seed) : getIndustrialFacade(seed);
       }
 
+      // 1. Concrete Ground Podium Foundation & Sidewalk Plaza
       const foundationH = 1.8;
-      structures.push(
-        new Entity({
-          name: `${entity.name} Sidewalk Foundation ${seed}`,
-          position: Cartesian3.fromDegrees(bLng, bLat, foundationH / 2),
-          box: {
-            dimensions: new Cartesian3(wD + 18, wH + 18, foundationH),
-            material: Color.fromCssColorString('#1e293b'),
-            distanceDisplayCondition: buildingDistanceCondition,
-          },
-        })
-      );
-
-      if (seed % 2 === 0) {
-        const treeOffsetLng = bLng + (wD / 2 + 6) * 0.000009;
-        const treeOffsetLat = bLat + (wH / 2 + 6) * 0.000009;
         structures.push(
           new Entity({
-            name: `${entity.name} Plaza Tree ${seed}`,
-            position: Cartesian3.fromDegrees(treeOffsetLng, treeOffsetLat, foundationH + 6),
-            ellipsoid: {
-              radii: new Cartesian3(6, 6, 6),
-              material: Color.fromCssColorString('#15803d'),
+            name: `${entity.name} Sidewalk Foundation ${seed}`,
+            position: Cartesian3.fromDegrees(bLng, bLat, foundationH / 2),
+            box: {
+              dimensions: new Cartesian3(wD + 18, wH + 18, foundationH),
+              material: Color.fromCssColorString('#1e293b'),
               distanceDisplayCondition: buildingDistanceCondition,
             },
           })
         );
+
+        // Roadside Plaza Trees (Corner canopy foliage)
+        if (seed % 2 === 0) {
+          const treeOffsetLng = bLng + (wD / 2 + 6) * 0.000009;
+          const treeOffsetLat = bLat + (wH / 2 + 6) * 0.000009;
+          structures.push(
+            new Entity({
+              name: `${entity.name} Plaza Tree ${seed}`,
+              position: Cartesian3.fromDegrees(treeOffsetLng, treeOffsetLat, foundationH + 6),
+              ellipsoid: {
+                radii: new Cartesian3(6, 6, 6),
+                material: Color.fromCssColorString('#15803d'),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+        }
+
+        // 2. High-Rise Architectural Structure Construction
+        if (isCylinder) {
+          // Cylindrical Glass Tower with Spire
+          structures.push(
+            new Entity({
+              name: `${entity.name} Cylindrical Skyscraper ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height / 2),
+              cylinder: {
+                length: height,
+                topRadius: wD / 2,
+                bottomRadius: wD / 2,
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+
+          // Roof Spire
+          const spireH = height * 0.2;
+          structures.push(
+            new Entity({
+              name: `${entity.name} Cylinder Spire ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height + spireH / 2),
+              cylinder: {
+                length: spireH,
+                topRadius: 0.5,
+                bottomRadius: wD * 0.15,
+                material: Color.SILVER,
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+        } else if (isTwinTower) {
+          // Twin Skyscraper Towers connected by mid-level Skybridge
+          const tWidth = wD * 0.42;
+          const offsetLng = (wD * 0.3) * 0.000009;
+
+          const leftLng = bLng - offsetLng;
+          const rightLng = bLng + offsetLng;
+
+          structures.push(
+            new Entity({
+              name: `${entity.name} Twin Tower Left ${seed}`,
+              position: Cartesian3.fromDegrees(leftLng, bLat, foundationH + height / 2),
+              box: {
+                dimensions: new Cartesian3(tWidth, wH, height),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            new Entity({
+              name: `${entity.name} Twin Tower Right ${seed}`,
+              position: Cartesian3.fromDegrees(rightLng, bLat, foundationH + height / 2),
+              box: {
+                dimensions: new Cartesian3(tWidth, wH, height),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            // Skybridge
+            new Entity({
+              name: `${entity.name} Skybridge ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height * 0.65),
+              box: {
+                dimensions: new Cartesian3(offsetLng * 2 * 111000, wH * 0.5, 8),
+                material: Color.fromCssColorString('#38bdf8').withAlpha(0.85),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+        } else if (isSetback) {
+          // 3-Tier Stepped Art-Deco Skyscraper with Helipad
+          const tier1H = height * 0.45;
+          const tier2H = height * 0.35;
+          const tier3H = height * 0.20;
+
+          structures.push(
+            new Entity({
+              name: `${entity.name} Setback Tier 1 ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H / 2),
+              box: {
+                dimensions: new Cartesian3(wD, wH, tier1H),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            new Entity({
+              name: `${entity.name} Setback Tier 2 ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H + tier2H / 2),
+              box: {
+                dimensions: new Cartesian3(wD * 0.75, wH * 0.75, tier2H),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            new Entity({
+              name: `${entity.name} Setback Tier 3 ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H + tier2H + tier3H / 2),
+              box: {
+                dimensions: new Cartesian3(wD * 0.5, wH * 0.5, tier3H),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+
+          // Rooftop Helipad with glowing beacon perimeter
+          const totalRoofH = foundationH + height;
+          structures.push(
+            new Entity({
+              name: `${entity.name} Helipad ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, totalRoofH + 0.3),
+              cylinder: {
+                length: 0.6,
+                topRadius: wD * 0.2,
+                bottomRadius: wD * 0.2,
+                material: Color.fromCssColorString('#334155'),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            new Entity({
+              name: `${entity.name} Helipad Beacon ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, totalRoofH + 1.2),
+              ellipsoid: {
+                radii: new Cartesian3(1.5, 1.5, 1.5),
+                material: Color.RED,
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+        } else {
+          // Standard Highrise with Rooftop HVAC Penthouse Box
+          structures.push(
+            new Entity({
+              name: `${entity.name} Highrise ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height / 2),
+              box: {
+                dimensions: new Cartesian3(wD, wH, height),
+                material: getCachedImageMaterial(facadeUrl),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            }),
+            // HVAC Rooftop Unit
+            new Entity({
+              name: `${entity.name} HVAC Penthouse ${seed}`,
+              position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height + 3),
+              box: {
+                dimensions: new Cartesian3(wD * 0.35, wH * 0.35, 6),
+                material: Color.fromCssColorString('#0f172a'),
+                distanceDisplayCondition: buildingDistanceCondition,
+              },
+            })
+          );
+        }
       }
 
-      if (isCylinder) {
-        structures.push(
-          new Entity({
-            name: `${entity.name} Cylindrical Skyscraper ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height / 2),
-            cylinder: {
-              length: height,
-              topRadius: wD / 2,
-              bottomRadius: wD / 2,
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-
-        const spireH = height * 0.2;
-        structures.push(
-          new Entity({
-            name: `${entity.name} Cylinder Spire ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height + spireH / 2),
-            cylinder: {
-              length: spireH,
-              topRadius: 0.5,
-              bottomRadius: wD * 0.15,
-              material: Color.SILVER,
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-      } else if (isTwinTower) {
-        const tWidth = wD * 0.42;
-        const offsetLng = (wD * 0.3) * 0.000009;
-        const leftLng = bLng - offsetLng;
-        const rightLng = bLng + offsetLng;
-
-        structures.push(
-          new Entity({
-            name: `${entity.name} Twin Tower Left ${seed}`,
-            position: Cartesian3.fromDegrees(leftLng, bLat, foundationH + height / 2),
-            box: {
-              dimensions: new Cartesian3(tWidth, wH, height),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} Twin Tower Right ${seed}`,
-            position: Cartesian3.fromDegrees(rightLng, bLat, foundationH + height / 2),
-            box: {
-              dimensions: new Cartesian3(tWidth, wH, height),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} Skybridge ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height * 0.65),
-            box: {
-              dimensions: new Cartesian3(offsetLng * 2 * 111000, wH * 0.5, 8),
-              material: Color.fromCssColorString('#38bdf8').withAlpha(0.85),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-      } else if (isSetback) {
-        const tier1H = height * 0.45;
-        const tier2H = height * 0.35;
-        const tier3H = height * 0.20;
-
-        structures.push(
-          new Entity({
-            name: `${entity.name} Setback Tier 1 ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H / 2),
-            box: {
-              dimensions: new Cartesian3(wD, wH, tier1H),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} Setback Tier 2 ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H + tier2H / 2),
-            box: {
-              dimensions: new Cartesian3(wD * 0.75, wH * 0.75, tier2H),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} Setback Tier 3 ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + tier1H + tier2H + tier3H / 2),
-            box: {
-              dimensions: new Cartesian3(wD * 0.5, wH * 0.5, tier3H),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-
-        const totalRoofH = foundationH + height;
-        structures.push(
-          new Entity({
-            name: `${entity.name} Helipad ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, totalRoofH + 0.3),
-            cylinder: {
-              length: 0.6,
-              topRadius: wD * 0.2,
-              bottomRadius: wD * 0.2,
-              material: Color.fromCssColorString('#334155'),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} Helipad Beacon ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, totalRoofH + 1.2),
-            ellipsoid: {
-              radii: new Cartesian3(1.5, 1.5, 1.5),
-              material: Color.RED,
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-      } else {
-        structures.push(
-          new Entity({
-            name: `${entity.name} Highrise ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height / 2),
-            box: {
-              dimensions: new Cartesian3(wD, wH, height),
-              material: getCachedImageMaterial(facadeUrl),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          }),
-          new Entity({
-            name: `${entity.name} HVAC Penthouse ${seed}`,
-            position: Cartesian3.fromDegrees(bLng, bLat, foundationH + height + 3),
-            box: {
-              dimensions: new Cartesian3(wD * 0.35, wH * 0.35, 6),
-              material: Color.fromCssColorString('#0f172a'),
-              distanceDisplayCondition: buildingDistanceCondition,
-            },
-          })
-        );
-      }
-    }
-
+    // 3. Seeded Center Landmark (Varies per city so cities do not look identical)
     const citySeed = Math.abs(
       entity.id.split('').reduce((acc, ch) => (acc << 5) - acc + ch.charCodeAt(0), 0)
     );
     const landmarkType = citySeed % 5;
 
     if (landmarkType === 0) {
+      // Twin Financial Towers Plaza
       const towerH = isCity ? 320 : 180;
       structures.push(
         new Entity({
@@ -667,6 +712,7 @@ export function createTownStructureEntities(
         })
       );
     } else if (landmarkType === 1) {
+      // Central Civic Park & Obelisk Monument
       structures.push(
         new Entity({
           name: `${entity.name} Civic Park Lawn`,
@@ -688,6 +734,7 @@ export function createTownStructureEntities(
         })
       );
     } else if (landmarkType === 2) {
+      // Glass Arena / Stadium Dome
       structures.push(
         new Entity({
           name: `${entity.name} Stadium Arena Dome`,
@@ -700,6 +747,7 @@ export function createTownStructureEntities(
         })
       );
     } else if (landmarkType === 3) {
+      // Convention Terminal Hub
       structures.push(
         new Entity({
           name: `${entity.name} Transit Terminal Roof`,
@@ -712,6 +760,7 @@ export function createTownStructureEntities(
         })
       );
     } else {
+      // Natural Highrise Block (No single central tower)
       structures.push(
         new Entity({
           name: `${entity.name} Downtown Highrise`,
@@ -728,6 +777,7 @@ export function createTownStructureEntities(
     return structures;
   }
 
+  // Fantasy / Medieval Architectural Styling
   const nameLower = entity.name.toLowerCase();
   const tagsStr = entity.tags.join(' ').toLowerCase();
 
@@ -773,6 +823,7 @@ export function createTownStructureEntities(
       ? Color.GOLD
       : Color.fromCssColorString('#a0522d');
 
+  // 1. Iconic Tolkien Fantasy Cities (Minas Tirith & Barad-dûr)
   if (nameLower.includes('minas tirith')) {
     for (let tier = 1; tier <= 7; tier++) {
       const radius = 1200 - tier * 150;
@@ -889,11 +940,14 @@ export function createTownStructureEntities(
     return structures;
   }
 
+  // 2. Generic Medieval Town / Fortress Layout (Cathedral, Market Plaza, Wall Towers, Drawbridge Gatehouse)
   const isCity = entity.type === 'city';
   const houseCount = isCity ? 32 : 16;
   const centralHeight = isCity ? 190 : 80;
 
+  // Central Gothic Cathedral / Fortress Basilica
   structures.push(
+    // Main Cathedral Nave Hall
     new Entity({
       name: `${entity.name} Cathedral Nave`,
       position: Cartesian3.fromDegrees(lon, lat, centralHeight * 0.4),
@@ -904,6 +958,7 @@ export function createTownStructureEntities(
         outlineColor: roofColor,
       },
     }),
+    // Cathedral Transept Cross Hall
     new Entity({
       name: `${entity.name} Cathedral Transept`,
       position: Cartesian3.fromDegrees(lon, lat, centralHeight * 0.35),
@@ -914,6 +969,7 @@ export function createTownStructureEntities(
         outlineColor: roofColor,
       },
     }),
+    // Cathedral Bell Tower Spire
     new Entity({
       name: `${entity.name} Cathedral Spire`,
       position: Cartesian3.fromDegrees(lon, lat, centralHeight / 2),
@@ -938,6 +994,7 @@ export function createTownStructureEntities(
     })
   );
 
+  // Cobblestone Market Square Plaza
   const plazaDist = 0.0006;
   structures.push(
     new Entity({
@@ -948,6 +1005,7 @@ export function createTownStructureEntities(
         material: Color.fromCssColorString('#57534e'),
       },
     }),
+    // Market Canopy Stall 1
     new Entity({
       name: `${entity.name} Market Stall 1`,
       position: Cartesian3.fromDegrees(lon + plazaDist - 0.0001, lat, 3),
@@ -957,6 +1015,7 @@ export function createTownStructureEntities(
         distanceDisplayCondition: buildingDistanceCondition,
       },
     }),
+    // Market Canopy Stall 2
     new Entity({
       name: `${entity.name} Market Stall 2`,
       position: Cartesian3.fromDegrees(lon + plazaDist + 0.0001, lat + 0.0001, 3),
@@ -968,6 +1027,7 @@ export function createTownStructureEntities(
     })
   );
 
+  // Concentric Rings of Timber Cottages & Cobblestone Avenues
   const rings = isCity ? [0.0012, 0.0024] : [0.0016];
 
   for (let rIdx = 0; rIdx < rings.length; rIdx++) {
@@ -1000,12 +1060,100 @@ export function createTownStructureEntities(
           cylinder: {
             length: hH * 0.45,
             topRadius: 0,
+            bottomRadius: Math.max(hW, hD) * 0.7,
+            material: roofColor,
+            distanceDisplayCondition: buildingDistanceCondition,
+          },
+        })
+      );
+
+      // Garden Tree Clusters
+      if (i % 3 === 0) {
+        const tLng = hLng + Math.cos(angle + 0.5) * 0.0004;
+        const tLat = hLat + Math.sin(angle + 0.5) * 0.0004;
+        structures.push(
+          new Entity({
+            name: `${entity.name} Tree Canopy`,
+            position: Cartesian3.fromDegrees(tLng, tLat, 10),
+            ellipsoid: {
+              radii: new Cartesian3(10, 10, 10),
+              material: Color.fromCssColorString(style === 'elven' ? '#60a5fa' : '#22c55e'),
+              distanceDisplayCondition: buildingDistanceCondition,
+            },
+          })
+        );
+      }
+    }
+  }
+
+  // Defensive Outer Stone Walls & Drawbridge Gatehouse for Cities
+  if (isCity) {
+    const wallRadius = 0.0035;
+    for (let segment = 0; segment < 8; segment++) {
+      const angle = (segment / 8) * Math.PI * 2;
+      const wLng = lon + Math.cos(angle) * wallRadius;
+      const wLat = lat + Math.sin(angle) * wallRadius;
+
+      // Watchtowers with Conical Roofs
+      structures.push(
+        new Entity({
+          name: `${entity.name} Wall Watchtower ${segment + 1}`,
+          position: Cartesian3.fromDegrees(wLng, wLat, 25),
+          cylinder: {
+            length: 50,
+            topRadius: 14,
             bottomRadius: 18,
+            material: wallColor,
+            outline: true,
+            outlineColor: roofColor,
+          },
+        }),
+        new Entity({
+          name: `${entity.name} Watchtower Roof ${segment + 1}`,
+          position: Cartesian3.fromDegrees(wLng, wLat, 50 + 8),
+          cylinder: {
+            length: 16,
+            topRadius: 0,
+            bottomRadius: 16,
             material: roofColor,
           },
         })
       );
     }
+
+    // Main Drawbridge Gatehouse Towers (South Gate)
+    const gateLng = lon;
+    const gateLat = lat - wallRadius;
+    structures.push(
+      new Entity({
+        name: `${entity.name} Main Gatehouse Left Tower`,
+        position: Cartesian3.fromDegrees(gateLng - 0.0002, gateLat, 30),
+        cylinder: {
+          length: 60,
+          topRadius: 12,
+          bottomRadius: 16,
+          material: wallColor,
+        },
+      }),
+      new Entity({
+        name: `${entity.name} Main Gatehouse Right Tower`,
+        position: Cartesian3.fromDegrees(gateLng + 0.0002, gateLat, 30),
+        cylinder: {
+          length: 60,
+          topRadius: 12,
+          bottomRadius: 16,
+          material: wallColor,
+        },
+      }),
+      new Entity({
+        name: `${entity.name} Drawbridge Archway`,
+        position: Cartesian3.fromDegrees(gateLng, gateLat, 20),
+        box: {
+          dimensions: new Cartesian3(26, 12, 20),
+          material: Color.fromCssColorString('#44403c'),
+        },
+      })
+    );
   }
 
   return structures;
