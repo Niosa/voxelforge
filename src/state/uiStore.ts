@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ToolMode, EntityType } from '@/entities/types';
+import type { BiomeType } from '@/geo/biomeTexture';
 import { getInitialPerformanceMode, persistPerformanceMode } from '@/state/performanceMode';
 
 const HAS_SEEN_TUTORIAL_KEY = 'terraforge_seen_tutorial_v1';
@@ -39,9 +40,25 @@ export type FirstPersonBuildingType =
 
 export type WeatherType = 'clear' | 'rain' | 'snow' | 'fog' | 'storm';
 
+export type TerrainTopography = 'plains' | 'hills' | 'mountains' | 'valleys';
+export type TerrainClimate = 'temperate' | 'tropical' | 'arid' | 'frigid' | 'swamp';
+export type SettlementDensity = 'rural' | 'low' | 'medium' | 'high' | 'metropolitan';
+export type SettlementZoning = 'mixed' | 'residential' | 'commercial' | 'industrial' | 'downtown';
+
+export interface CreationSettings {
+  biome: BiomeType;
+  topography: TerrainTopography;
+  climate: TerrainClimate;
+  reliefHeight: number;
+  settlementDensity: SettlementDensity;
+  settlementZoning: SettlementZoning;
+  generate3DBuildings: boolean;
+}
+
 interface UiState {
   tool: ToolMode;
   creationEntityType: EntityType;
+  creationSettings: CreationSettings;
   smartBordersEnabled: boolean;
   inspectorOpen: boolean;
   fpsVisible: boolean;
@@ -68,11 +85,13 @@ interface UiState {
   realmStatsOpen: boolean;
   cinematicTourActive: boolean;
   mapExportOpen: boolean;
+  hierarchyGeneratorOpen: boolean;
   questModeActive: boolean;
   activeRelicCount: number;
 
   setTool: (tool: ToolMode) => void;
   setCreationEntityType: (type: EntityType) => void;
+  setCreationSettings: (settings: Partial<CreationSettings>) => void;
   setSmartBordersEnabled: (enabled: boolean) => void;
   setInspectorOpen: (open: boolean) => void;
   setProjectSettingsOpen: (open: boolean) => void;
@@ -96,6 +115,7 @@ interface UiState {
   setRealmStatsOpen: (open: boolean) => void;
   setCinematicTourActive: (active: boolean) => void;
   setMapExportOpen: (open: boolean) => void;
+  setHierarchyGeneratorOpen: (open: boolean) => void;
   setQuestModeActive: (active: boolean) => void;
   setActiveRelicCount: (count: number) => void;
   markTutorialSeen: () => void;
@@ -104,6 +124,15 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   tool: 'select',
   creationEntityType: 'continent',
+  creationSettings: {
+    biome: 'lush-grassland',
+    topography: 'plains',
+    climate: 'temperate',
+    reliefHeight: 0,
+    settlementDensity: 'medium',
+    settlementZoning: 'mixed',
+    generate3DBuildings: true,
+  },
   smartBordersEnabled: true,
   inspectorOpen: true,
   fpsVisible: import.meta.env.DEV,
@@ -129,11 +158,15 @@ export const useUiStore = create<UiState>((set) => ({
   realmStatsOpen: false,
   cinematicTourActive: false,
   mapExportOpen: false,
+  hierarchyGeneratorOpen: false,
   questModeActive: false,
   activeRelicCount: 0,
 
   setTool: (tool) => set({ tool }),
   setCreationEntityType: (creationEntityType) => set({ creationEntityType }),
+  setCreationSettings: (settings) => set((state) => ({
+    creationSettings: { ...state.creationSettings, ...settings },
+  })),
   setSmartBordersEnabled: (smartBordersEnabled) => set({ smartBordersEnabled }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setProjectSettingsOpen: (projectSettingsOpen) => set({ projectSettingsOpen }),
@@ -165,6 +198,7 @@ export const useUiStore = create<UiState>((set) => ({
   setRealmStatsOpen: (realmStatsOpen) => set({ realmStatsOpen }),
   setCinematicTourActive: (cinematicTourActive) => set({ cinematicTourActive }),
   setMapExportOpen: (mapExportOpen) => set({ mapExportOpen }),
+  setHierarchyGeneratorOpen: (hierarchyGeneratorOpen) => set({ hierarchyGeneratorOpen }),
   setQuestModeActive: (questModeActive) => set({ questModeActive }),
   setActiveRelicCount: (activeRelicCount) => set({ activeRelicCount }),
   markTutorialSeen: () => {

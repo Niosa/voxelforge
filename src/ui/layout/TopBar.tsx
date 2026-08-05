@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { history } from '@/state/history/HistoryStack';
@@ -33,12 +33,12 @@ import {
 import { flyToEntity } from '@/globe/camera';
 import { HamburgerMenu } from '@/ui/layout/HamburgerMenu';
 
-import { generateRandomRealm } from '@/geo/realmGenerator';
 import { soundEngine } from '@/audio/soundEngine';
 import { cinematicTour } from '@/globe/cinematicTour';
 
 export function TopBar() {
   const world = useWorldStore((s) => s.world);
+  const persistenceReady = useWorldStore((s) => s.persistenceReady);
   const loadSampleWorld = useWorldStore((s) => s.loadSampleWorld);
   const selectEntity = useWorldStore((s) => s.select);
   const updateWorldProperties = useWorldStore((s) => s.updateWorldProperties);
@@ -84,17 +84,12 @@ export function TopBar() {
   }, [world.id]);
 
   // Skip auto-save on the very first render — the initial `world` value comes
-  // from the store before IndexedDB persistence has resolved and could be the
-  // blank default or a stale preset, not the user's real last world.
-  // Subsequent changes (user edits, world switches) are genuine and should save.
-  const isFirstRenderRef = useRef(true);
+  // Do not let a synchronously seeded preset overwrite its persisted version
+  // while IndexedDB hydration is still in flight.
   useEffect(() => {
-    if (isFirstRenderRef.current) {
-      isFirstRenderRef.current = false;
-      return;
-    }
+    if (!persistenceReady) return;
     useWorldStore.getState().saveActiveWorld().catch(() => {});
-  }, [world]);
+  }, [world, persistenceReady]);
 
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
@@ -240,7 +235,7 @@ export function TopBar() {
         onClose={() => setWorldModalOpen(false)}
       />
 
-      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-slate-950/85 px-4 py-2.5 backdrop-blur-md z-40 relative">
+      <header className="relative z-40 flex min-h-14 items-center gap-2 overflow-hidden border-b border-white/10 bg-slate-950/90 px-2 py-2 backdrop-blur-md sm:gap-3 sm:px-3">
         <button
           type="button"
           onClick={() => setHamburgerMenuOpen(true)}
@@ -251,7 +246,7 @@ export function TopBar() {
           <span className="hidden sm:inline">Menu</span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden shrink-0 items-center gap-2 sm:flex">
           <span className="text-base font-extrabold tracking-wider text-teal-400">
             TERRAFORGE
           </span>
@@ -260,7 +255,7 @@ export function TopBar() {
           </span>
         </div>
 
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
           <div className="relative flex items-center">
             <span className="absolute left-3 text-slate-400 text-xs">🔍</span>
             <input
@@ -298,7 +293,7 @@ export function TopBar() {
           )}
         </div>
 
-        <div className="hidden text-xs font-medium text-slate-300 lg:flex items-center gap-2">
+        <div className="hidden shrink-0 items-center gap-2 text-xs font-medium text-slate-300 2xl:flex">
           <input
             type="text"
             value={world.name}
@@ -328,21 +323,21 @@ export function TopBar() {
           <span className="text-[10px] text-teal-400/80 font-mono">{lastSavedTime}</span>
         </div>
 
-        <div className="flex-1 hidden md:block" />
+        <div className="hidden min-w-0 flex-1 xl:block" />
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="no-scrollbar hidden max-w-[48vw] min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto lg:flex [&>*]:shrink-0">
           {/* 🎲 Forge Realm Generator */}
           <button
             type="button"
             onClick={() => {
               soundEngine.playClick();
-              generateRandomRealm();
+              useUiStore.getState().setHierarchyGeneratorOpen(true);
             }}
             className="flex items-center gap-1 rounded-xl border border-amber-500/40 bg-amber-500/20 px-2.5 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition shadow-sm cursor-pointer"
-            title="Procedurally generate a complete new fantasy world"
+            title="Generate a continent, region, city, or town with editable descendants"
           >
             <span>🎲</span>
-            <span className="hidden sm:inline">Forge Realm</span>
+            <span className="hidden sm:inline">Generate</span>
           </button>
 
           {/* 📊 Realm Dashboard */}

@@ -16,7 +16,6 @@ import {
 } from '@/globe/entitySync';
 import { syncWorldBordersData } from '@/globe/borderOverlay';
 import { firstPersonController } from '@/globe/FirstPersonController';
-import { generateRandomRealm } from '@/geo/realmGenerator';
 import { soundEngine } from '@/audio/soundEngine';
 import { questManager } from '@/globe/questManager';
 import { cinematicTour } from '@/globe/cinematicTour';
@@ -148,11 +147,11 @@ export function HamburgerMenu() {
                 onClick={() => {
                   soundEngine.playClick();
                   setOpen(false);
-                  generateRandomRealm();
+                  useUiStore.getState().setHierarchyGeneratorOpen(true);
                 }}
                 className="rounded-xl border border-amber-500/40 bg-amber-500/20 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition flex items-center justify-center gap-1 cursor-pointer"
               >
-                <span>🎲</span><span>Forge Realm</span>
+                <span>🎲</span><span>Generate World</span>
               </button>
 
               <button

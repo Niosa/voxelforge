@@ -7,10 +7,10 @@ export function StatusBar() {
   const tool = useUiStore((s) => s.tool);
 
   return (
-    <footer className="flex items-center gap-3 border-t border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs text-slate-400 backdrop-blur-md">
-      <span className="capitalize">Tool: {tool}</span>
+    <footer className="tf-status-bar flex min-h-9 items-center gap-2 border-t border-white/10 bg-slate-950/80 px-2 py-1 text-[11px] text-slate-400 backdrop-blur-md sm:gap-3 sm:px-3 sm:text-xs">
+      <span className="hidden capitalize sm:inline">Tool: {tool}</span>
       <span>·</span>
-      <span>Places: {count}</span>
+      <span className="hidden sm:inline">Places: {count}</span>
       <div className="flex-1" />
       <button
         type="button"

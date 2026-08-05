@@ -5,7 +5,6 @@ import { UpdateEntityCommand, DeleteEntityCommand } from '@/state/history/comman
 import type { EntityType } from '@/entities/types';
 import type { BiomeType } from '@/geo/biomeTexture';
 import { flyToEntity } from '@/globe/camera';
-import { firstPersonController } from '@/globe/FirstPersonController';
 import { geometryCentroid } from '@/geo/centroid';
 import { useUiStore } from '@/state/uiStore';
 
@@ -45,6 +44,7 @@ interface WikiData {
 
 export function InspectorPanel() {
   const firstPersonActive = useUiStore((s) => s.firstPersonActive);
+  const activeTool = useUiStore((s) => s.tool);
   const selectedId = useWorldStore((s) => s.selectedId);
   const allEntities = useWorldStore((s) => s.world.entities);
   const entity = useWorldStore((s) =>
@@ -94,7 +94,7 @@ export function InspectorPanel() {
 
   if (!entity) {
     return (
-      <aside className="m-2 flex w-80 flex-col rounded-2xl border border-white/10 bg-slate-950/85 p-4 backdrop-blur-md shadow-2xl">
+      <aside className="m-2 hidden w-80 flex-col rounded-2xl border border-white/10 bg-slate-950/85 p-4 shadow-2xl backdrop-blur-md md:flex">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Inspector</h2>
         <div className="flex flex-1 flex-col items-center justify-center text-center p-4 text-slate-500">
           <span className="text-3xl mb-2">📍</span>
@@ -104,7 +104,12 @@ export function InspectorPanel() {
     );
   }
 
-  const currentExtrudedHeight = (entity.properties.extrudedHeight as number) ?? 0;
+  const currentTopography = String(entity.properties.topography ?? 'plains');
+  const defaultReliefHeight = currentTopography === 'mountains' ? 2_400
+    : currentTopography === 'hills' ? 450
+    : currentTopography === 'valleys' ? 300
+    : 0;
+  const currentReliefHeight = Number(entity.properties.reliefHeight ?? defaultReliefHeight);
   const currentBiome = (entity.properties.biome as BiomeType) ?? 'custom';
   const showFill = entity.properties.showFill !== false;
   const currentFlagUrl = (entity.properties.flagUrl as string) || '';
@@ -128,7 +133,7 @@ export function InspectorPanel() {
   };
 
   return (
-    <aside className="m-2 flex w-80 h-[calc(100vh-5.5rem)] overflow-y-auto flex-col rounded-2xl border border-white/15 bg-slate-950/95 p-4 pb-12 backdrop-blur-md shadow-2xl space-y-4 animate-fadeIn scrollbar-thin">
+    <aside className={`scrollbar-thin fixed inset-x-2 bottom-[6.9rem] z-20 max-h-[min(48dvh,calc(100dvh-11rem))] w-auto flex-col space-y-3 overflow-y-auto rounded-xl border border-white/15 bg-slate-950/95 p-3 shadow-2xl backdrop-blur-md animate-fadeIn md:static md:m-2 md:flex md:h-[calc(100dvh-5.5rem)] md:max-h-none md:w-80 md:space-y-4 md:rounded-2xl md:p-4 md:pb-12 ${activeTool === 'select' || activeTool === 'pan' ? 'flex' : 'hidden'}`}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
         <div className="flex items-center gap-2">
@@ -142,10 +147,16 @@ export function InspectorPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => { const [lon, lat] = geometryCentroid(entity.geometry); firstPersonController.enter(lon, lat); }}
+            onClick={() => {
+              const [lon, lat] = geometryCentroid(entity.geometry);
+              useUiStore.getState().setTool('walk');
+              window.__voxelforgeDescend?.(lon, lat);
+            }}
             className="rounded-lg border border-amber-500/40 bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/30 transition flex items-center gap-1 cursor-pointer"
-            title="Walk on ground in 1st-person exploration mode"
-          >🚶 Walk</button>
+            title={entity.properties.walkEntry === true
+              ? 'Return to this saved walk site'
+              : 'Walk on ground in 1st-person exploration mode'}
+          >{entity.properties.walkEntry === true ? 'Return to Site' : 'Walk'}</button>
           <button
             type="button"
             onClick={() => flyToEntity(entity)}
@@ -320,7 +331,11 @@ export function InspectorPanel() {
           </div>
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">⛰️ Topography Profile</label>
-            <select value={(entity.properties.topography as string) || 'plains'} onChange={(e) => handleUpdateProperty('topography', e.target.value)} className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 focus:border-teal-400 focus:outline-none transition cursor-pointer">
+            <select value={currentTopography} onChange={(e) => {
+              const next = e.target.value;
+              handleUpdateProperty('topography', next);
+              handleUpdateProperty('reliefHeight', next === 'mountains' ? 2_400 : next === 'hills' ? 450 : next === 'valleys' ? 300 : 0);
+            }} className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-200 focus:border-teal-400 focus:outline-none transition cursor-pointer">
               <option value="plains">🌾 Flat Plains</option>
               <option value="hills">⛰️ Rolling Hills</option>
               <option value="mountains">🏔️ Rugged Mountains</option>
@@ -340,14 +355,14 @@ export function InspectorPanel() {
         </div>
       )}
 
-      {/* 3D Plateau Height */}
+      {/* Authored terrain relief shared by globe and walk mode */}
       {entity.geometry.type !== 'Point' && (
         <div>
           <div className="flex justify-between items-center mb-1">
-            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">3D Plateau Height</label>
-            <span className="text-xs font-mono text-teal-300">{Math.round(currentExtrudedHeight / 1000)} km</span>
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Terrain Relief Height</label>
+            <span className="text-xs font-mono text-teal-300">{Math.round(currentReliefHeight)} m</span>
           </div>
-          <input type="range" min="0" max="150000" step="5000" value={currentExtrudedHeight} onChange={(e) => handleUpdateProperty('extrudedHeight', parseInt(e.target.value, 10))} className="w-full accent-teal-400 cursor-pointer" />
+          <input type="range" min="0" max="6000" step="100" value={currentReliefHeight} onChange={(e) => handleUpdateProperty('reliefHeight', parseInt(e.target.value, 10))} className="w-full accent-teal-400 cursor-pointer" />
         </div>
       )}
 

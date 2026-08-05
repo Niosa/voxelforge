@@ -46,3 +46,10 @@ body,
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
+
+/* Hide the desktop status separator with its labels on narrow screens. */
+@media (max-width: 639px) {
+  .tf-status-bar > span:nth-child(2) {
+    display: none;
+  }
+}

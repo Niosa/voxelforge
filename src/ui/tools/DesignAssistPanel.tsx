@@ -98,7 +98,7 @@ export function DesignAssistPanel() {
   };
 
   return (
-    <div className="fixed bottom-6 left-6 z-40 w-96 max-w-[90vw] rounded-2xl border border-teal-500/30 bg-slate-950/90 p-4 text-slate-100 shadow-2xl backdrop-blur-md animate-fade-in space-y-4">
+    <div className="fixed inset-x-2 bottom-[6.9rem] z-40 max-h-[min(58dvh,calc(100dvh-10rem))] overflow-y-auto rounded-xl border border-teal-500/30 bg-slate-950/95 p-3 text-slate-100 shadow-2xl backdrop-blur-md animate-fade-in space-y-3 sm:inset-x-auto sm:bottom-12 sm:left-3 sm:w-96 sm:max-w-[calc(100vw-1.5rem)] sm:rounded-2xl sm:p-4 md:bottom-6 md:left-24 md:max-h-[calc(100dvh-7rem)]">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-3">
         <div className="flex items-center space-x-2">

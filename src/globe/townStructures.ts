@@ -7,12 +7,13 @@ import {
   ImageMaterialProperty,
   DistanceDisplayCondition,
 } from 'cesium';
-import type { TerraEntity, TerraGeometry } from '@/entities/types';
+import type { SettlementBuildingUse, TerraEntity, TerraGeometry } from '@/entities/types';
 import { geometryCentroid } from '@/geo/centroid';
 import { getEntityArea } from '@/geo/geometryArea';
 import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
 import { LruCache } from '@/utils/lruCache';
+import { planCityLots, planCityRoadSegments } from '@/city/CityLayout';
 
 function isPointInRing(pt: [number, number], ring: [number, number][]): boolean {
   let inside = false;
@@ -47,8 +48,52 @@ function isPointInsideEntityGeometry(pt: [number, number], geom: TerraGeometry):
 const facadeCache = new LruCache<string, string>(100);
 const materialCache = new LruCache<string, ImageMaterialProperty>(100);
 
-// Distance display condition: buildings display within 0 - 3,500m for smooth high FPS
-const buildingDistanceCondition = new DistanceDisplayCondition(0, 3_500);
+// Building counts are bounded and spatially sampled, so the full settlement can
+// remain visible at regional zoom instead of only the few parcels under camera.
+const buildingDistanceCondition = new DistanceDisplayCondition(0, 50_000);
+
+interface SettlementContext {
+  biome: string;
+  nearbySettlementCount: number;
+  densityMultiplier: number;
+  metropolitan: boolean;
+}
+
+function analyzeSettlementContext(entity: TerraEntity, entities: Record<string, TerraEntity>): SettlementContext {
+  const [lon, lat] = geometryCentroid(entity.geometry);
+  const containing = Object.values(entities)
+    .filter((candidate) => candidate.id !== entity.id && candidate.type !== 'city' && candidate.type !== 'town')
+    .filter((candidate) => isPointInsideEntityGeometry([lon, lat], candidate.geometry))
+    .sort((a, b) => getEntityArea(a) - getEntityArea(b));
+  const biome = String(
+    containing.find((candidate) => candidate.properties.biome)?.properties.biome
+      ?? (containing.length > 0 ? 'temperate' : 'ocean'),
+  ).toLowerCase();
+  let nearbySettlementCount = 0;
+  for (const candidate of Object.values(entities)) {
+    if (candidate.id === entity.id || (candidate.type !== 'city' && candidate.type !== 'town')) continue;
+    const [otherLon, otherLat] = geometryCentroid(candidate.geometry);
+    const meters = Math.hypot(
+      (otherLon - lon) * 111_000 * Math.cos(lat * Math.PI / 180),
+      (otherLat - lat) * 111_000,
+    );
+    if (meters < 4_000) nearbySettlementCount++;
+  }
+  const population = Math.max(0, Number(entity.properties.population) || 0);
+  const climateMultiplier = /ocean|water/.test(biome)
+    ? 0.55
+    : /polar|tundra|ice|desert|arid/.test(biome)
+    ? 0.72
+    : /forest|jungle|wetland|mountain/.test(biome)
+    ? 0.84
+    : 1;
+  return {
+    biome,
+    nearbySettlementCount,
+    densityMultiplier: climateMultiplier * Math.min(1.2, 0.82 + nearbySettlementCount * 0.12),
+    metropolitan: entity.type === 'city' && population >= 150_000 && nearbySettlementCount > 0,
+  };
+}
 
 function getCachedImageMaterial(imageUrl: string): ImageMaterialProperty {
   let mat = materialCache.get(imageUrl);
@@ -343,13 +388,15 @@ export function createTownStructureEntities(
 
   const [lon, lat] = geometryCentroid(entity.geometry);
   const structures: Entity[] = [];
-  const theme = useWorldStore.getState().world.properties?.theme || 'medieval';
+  const activeWorld = useWorldStore.getState().world;
+  const theme = activeWorld.properties?.theme || 'medieval';
+  const settlementContext = analyzeSettlementContext(entity, activeWorld.entities);
 
   if (theme === 'modern') {
     const isCity = entity.type === 'city';
     const isPolygonEntity = entity.geometry.type === 'Polygon' || entity.geometry.type === 'MultiPolygon';
 
-    let gridPoints: { lon: number; lat: number; dist: number; seed: number }[] = [];
+    let gridPoints: { lon: number; lat: number; dist: number; seed: number; plannedHeight?: number; lotWidth?: number; lotDepth?: number; buildingUse?: SettlementBuildingUse }[] = [];
 
     if (isPolygonEntity) {
       // Calculate geographic bounding box of freehand city polygon
@@ -420,20 +467,47 @@ export function createTownStructureEntities(
       }
     }
 
-    // Area/population-based desired building count with district-type multiplier.
-    // Sort closest-first before slicing so the denser downtown core always wins.
-    const entityArea = getEntityArea(entity);
-    const population = typeof entity.properties?.population === 'number'
-      ? entity.properties.population
-      : 0;
-
-    let desiredBuildings = Math.max(4, Math.ceil(entityArea / 5000));
-    if (population > 0) {
-      desiredBuildings = Math.max(desiredBuildings, Math.ceil(population / 100));
+    // Replace the old independent globe grid with lots from the same seeded
+    // parcel plan used by walk mode. Globe and voxel skylines now correspond.
+    const sharedLots = planCityLots(entity, activeWorld.seed ?? 0, 256, true);
+    if (sharedLots.length > 0) {
+      gridPoints = sharedLots.map((lot) => ({
+        lon: lot.lon,
+        lat: lot.lat,
+        dist: lot.distance / Math.max(1, 22),
+        seed: lot.parcelSeed,
+        plannedHeight: lot.buildingHeight,
+        lotWidth: lot.lotWidth,
+        lotDepth: lot.lotDepth,
+        buildingUse: lot.buildingUse,
+      }));
+      for (const [roadIndex, road] of planCityRoadSegments(entity, activeWorld.seed ?? 0, 32).entries()) {
+        structures.push(new Entity({
+          name: `${entity.name} Shared Avenue ${roadIndex + 1}`,
+          corridor: {
+            positions: [
+              Cartesian3.fromDegrees(road.startLon, road.startLat),
+              Cartesian3.fromDegrees(road.endLon, road.endLat),
+            ],
+            width: road.width,
+            height: 0.15,
+            material: Color.fromCssColorString('#1f2937'),
+            distanceDisplayCondition: buildingDistanceCondition,
+          },
+        }));
+      }
     }
 
+    // The number of real shared parcels is a much better density signal than a
+    // fixed population default. Small drawn cities therefore stay small.
+    const parcelCount = sharedLots.length || gridPoints.length;
+    const desiredBuildings = Math.max(
+      entity.type === 'town' ? 3 : 4,
+      Math.round(parcelCount * (entity.type === 'town' ? 0.55 : 0.68) * settlementContext.densityMultiplier),
+    );
+
     const multiplier =
-      districtType === 'downtown' ? 1.5 :
+      districtType === 'downtown' ? (settlementContext.metropolitan ? 1.3 : 1) :
       districtType === 'commercial' ? 1.2 :
       districtType === 'residential' ? 0.8 :
       districtType === 'industrial' ? 0.7 :
@@ -441,11 +515,15 @@ export function createTownStructureEntities(
 
     const isTouch = typeof navigator !== 'undefined' &&
       ((navigator.maxTouchPoints ?? 0) > 0 || 'ontouchstart' in window);
-    const cap = isTouch ? 12 : 24;
+    const cap = isTouch ? (entity.type === 'town' ? 8 : 14) : (entity.type === 'town' ? 14 : 28);
 
-    gridPoints = gridPoints
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, Math.min(Math.ceil(desiredBuildings * multiplier), cap));
+    const sortedGridPoints = gridPoints.sort((a, b) => a.dist - b.dist);
+    const selectedCount = Math.min(Math.ceil(desiredBuildings * multiplier), cap, sortedGridPoints.length);
+    gridPoints = selectedCount >= sortedGridPoints.length
+      ? sortedGridPoints
+      : Array.from({ length: selectedCount }, (_, index) =>
+          sortedGridPoints[Math.round(index * (sortedGridPoints.length - 1) / Math.max(1, selectedCount - 1))]!,
+        );
 
     for (const pt of gridPoints) {
       const bLng = pt.lon;
@@ -485,14 +563,59 @@ export function createTownStructureEntities(
         facadeUrl = (seed % 2 === 0) ? getResidentialFacade(seed) : getIndustrialFacade(seed);
       }
 
+      if (pt.plannedHeight !== undefined) {
+        height = Math.max(7, pt.plannedHeight * 3.1);
+        wD = Math.max(7, (pt.lotWidth ?? 8) * 0.82);
+        wH = Math.max(7, (pt.lotDepth ?? 8) * 0.82);
+        facadeUrl = dist < 2
+          ? getCurtainWallFacade(seed)
+          : seed % 2 === 0
+          ? getResidentialFacade(seed)
+          : getConcreteCoreFacade(seed);
+        isCylinder = false;
+        isSetback = settlementContext.metropolitan && dist < 1.4 && seed % 4 === 0;
+        isTwinTower = false;
+
+        // The globe uses the same parcel purpose as walk mode, making homes,
+        // shops, workshops and civic buildings recognizable from either view.
+        if (pt.buildingUse === 'home') {
+          height = Math.min(height, isCity ? 24 : 16);
+          facadeUrl = getResidentialFacade(seed);
+          isSetback = false;
+        } else if (pt.buildingUse === 'shop' || pt.buildingUse === 'inn') {
+          height = Math.min(height, isCity ? 34 : 20);
+          facadeUrl = getConcreteCoreFacade(seed + 17);
+          isSetback = false;
+        } else if (pt.buildingUse === 'workshop' || pt.buildingUse === 'farm') {
+          height = Math.min(height, 18);
+          wD *= 1.12;
+          facadeUrl = getIndustrialFacade(seed);
+          isSetback = false;
+        } else if (pt.buildingUse === 'civic') {
+          height = Math.min(48, height * 1.2);
+          facadeUrl = getSetbackTowerFacade(seed + 29);
+        }
+      } else {
+        // Legacy/fallback points still use restrained voxel-like massing.
+        height = entity.type === 'town' ? 7 + seed % 7 : 10 + seed % (settlementContext.metropolitan ? 28 : 14);
+        wD = entity.type === 'town' ? 9 + seed % 5 : 11 + seed % 8;
+        wH = entity.type === 'town' ? 9 + (seed >>> 2) % 5 : 11 + (seed >>> 2) % 8;
+        facadeUrl = entity.type === 'town' || dist > 1.5
+          ? getResidentialFacade(seed)
+          : getConcreteCoreFacade(seed);
+        isCylinder = false;
+        isSetback = false;
+        isTwinTower = false;
+      }
+
       // 1. Concrete Ground Podium Foundation & Sidewalk Plaza
       const foundationH = 1.8;
         structures.push(
           new Entity({
-            name: `${entity.name} Sidewalk Foundation ${seed}`,
+            name: `${entity.name} ${pt.buildingUse ?? 'mixed-use'} foundation ${seed}`,
             position: Cartesian3.fromDegrees(bLng, bLat, foundationH / 2),
             box: {
-              dimensions: new Cartesian3(wD + 18, wH + 18, foundationH),
+              dimensions: new Cartesian3(wD + 4, wH + 4, foundationH),
               material: Color.fromCssColorString('#1e293b'),
               distanceDisplayCondition: buildingDistanceCondition,
             },
@@ -507,8 +630,8 @@ export function createTownStructureEntities(
             new Entity({
               name: `${entity.name} Plaza Tree ${seed}`,
               position: Cartesian3.fromDegrees(treeOffsetLng, treeOffsetLat, foundationH + 6),
-              ellipsoid: {
-                radii: new Cartesian3(6, 6, 6),
+              box: {
+                dimensions: new Cartesian3(4.5, 4.5, 6),
                 material: Color.fromCssColorString('#15803d'),
                 distanceDisplayCondition: buildingDistanceCondition,
               },
@@ -672,11 +795,17 @@ export function createTownStructureEntities(
         }
       }
 
+    // Major landmarks are reserved for genuinely metropolitan settlements.
+    // Ordinary and small cities keep a readable low/mid-rise voxel skyline.
+    if (!settlementContext.metropolitan) return structures;
+
     // 3. Seeded Center Landmark (Varies per city so cities do not look identical)
     const citySeed = Math.abs(
       entity.id.split('').reduce((acc, ch) => (acc << 5) - acc + ch.charCodeAt(0), 0)
     );
-    const landmarkType = citySeed % 5;
+    // Keep globe landmarks cuboid as well; elaborate round monuments clash
+    // with the voxel vocabulary used by walk mode.
+    const landmarkType: number = 3;
 
     if (landmarkType === 0) {
       // Twin Financial Towers Plaza
@@ -940,10 +1069,91 @@ export function createTownStructureEntities(
     return structures;
   }
 
-  // 2. Generic Medieval Town / Fortress Layout (Cathedral, Market Plaza, Wall Towers, Drawbridge Gatehouse)
+  // Generic fantasy/medieval settlements use the same block parcels as walk
+  // mode. Distinctive named landmarks above retain their authored silhouettes,
+  // while ordinary towns no longer become rings of round towers and cone roofs.
+  const voxelLots = planCityLots(entity, activeWorld.seed ?? 0, entity.type === 'town' ? 72 : 144, true);
+  const voxelCount = Math.min(
+    voxelLots.length,
+    entity.type === 'town' ? 24 : 48,
+    Math.max(entity.type === 'town' ? 3 : 4, Math.round(voxelLots.length * settlementContext.densityMultiplier * 0.72)),
+  );
+  const selectedVoxelLots = voxelCount >= voxelLots.length
+    ? voxelLots
+    : Array.from({ length: voxelCount }, (_, index) =>
+        voxelLots[Math.round(index * (voxelLots.length - 1) / Math.max(1, voxelCount - 1))]!,
+      );
+  for (const lot of selectedVoxelLots) {
+    let height = Math.max(6, lot.buildingHeight * 2.6);
+    if (lot.buildingUse === 'home') height = Math.min(height, entity.type === 'town' ? 13 : 18);
+    if (lot.buildingUse === 'workshop' || lot.buildingUse === 'farm') height = Math.min(height, 14);
+    if (lot.buildingUse === 'civic') height = Math.min(34, height * 1.15);
+    const width = Math.max(7, lot.lotWidth * 0.82);
+    const depth = Math.max(7, lot.lotDepth * 0.82);
+    structures.push(
+      new Entity({
+        name: `${entity.name} ${lot.buildingUse} ${lot.parcelSeed}`,
+        position: Cartesian3.fromDegrees(lot.lon, lot.lat, height / 2),
+        box: {
+          dimensions: new Cartesian3(width, depth, height),
+          material: wallColor,
+          distanceDisplayCondition: buildingDistanceCondition,
+        },
+      }),
+      new Entity({
+        name: `${entity.name} block roof ${lot.parcelSeed}`,
+        position: Cartesian3.fromDegrees(lot.lon, lot.lat, height + 0.75),
+        box: {
+          dimensions: new Cartesian3(width + 0.8, depth + 0.8, 1.5),
+          material: roofColor,
+          distanceDisplayCondition: buildingDistanceCondition,
+        },
+      }),
+    );
+  }
+  for (const [roadIndex, road] of planCityRoadSegments(entity, activeWorld.seed ?? 0, 24).entries()) {
+    structures.push(new Entity({
+      name: `${entity.name} voxel road ${roadIndex + 1}`,
+      corridor: {
+        positions: [
+          Cartesian3.fromDegrees(road.startLon, road.startLat),
+          Cartesian3.fromDegrees(road.endLon, road.endLat),
+        ],
+        width: road.width,
+        height: 0.12,
+        material: Color.fromCssColorString('#57534e'),
+        distanceDisplayCondition: buildingDistanceCondition,
+      },
+    }));
+  }
+  if (structures.length > 0) return structures;
+
+  // 2. Legacy fallback for degenerate settlement geometry.
   const isCity = entity.type === 'city';
-  const houseCount = isCity ? 32 : 16;
+  const population = typeof entity.properties.population === 'number' ? entity.properties.population : 0;
+  const houseCount = Math.min(
+    isCity ? 48 : 24,
+    Math.max(isCity ? 28 : 14, Math.ceil(population / 750)),
+  );
   const centralHeight = isCity ? 190 : 80;
+  let layoutRadius = isCity ? 0.0035 : 0.0018;
+  if (entity.geometry.type !== 'Point') {
+    const rings = entity.geometry.type === 'Polygon'
+      ? [entity.geometry.coordinates[0] as [number, number][]]
+      : entity.geometry.coordinates.map((polygon) => polygon[0] as [number, number][]);
+    let minLon = Number.POSITIVE_INFINITY, maxLon = Number.NEGATIVE_INFINITY;
+    let minLat = Number.POSITIVE_INFINITY, maxLat = Number.NEGATIVE_INFINITY;
+    for (const ring of rings) {
+      for (const [ringLon, ringLat] of ring) {
+        minLon = Math.min(minLon, ringLon); maxLon = Math.max(maxLon, ringLon);
+        minLat = Math.min(minLat, ringLat); maxLat = Math.max(maxLat, ringLat);
+      }
+    }
+    const insetRadius = Math.min(maxLon - minLon, maxLat - minLat) * 0.42;
+    if (Number.isFinite(insetRadius) && insetRadius > 0) {
+      layoutRadius = Math.max(0.0005, Math.min(0.01, insetRadius));
+    }
+  }
 
   // Central Gothic Cathedral / Fortress Basilica
   structures.push(
@@ -995,7 +1205,7 @@ export function createTownStructureEntities(
   );
 
   // Cobblestone Market Square Plaza
-  const plazaDist = 0.0006;
+  const plazaDist = layoutRadius * 0.18;
   structures.push(
     new Entity({
       name: `${entity.name} Market Square Paving`,
@@ -1028,7 +1238,9 @@ export function createTownStructureEntities(
   );
 
   // Concentric Rings of Timber Cottages & Cobblestone Avenues
-  const rings = isCity ? [0.0012, 0.0024] : [0.0016];
+  const rings = isCity
+    ? [layoutRadius * 0.36, layoutRadius * 0.7]
+    : [layoutRadius * 0.58];
 
   for (let rIdx = 0; rIdx < rings.length; rIdx++) {
     const dist = rings[rIdx]!;
@@ -1038,6 +1250,9 @@ export function createTownStructureEntities(
       const angle = (i / count) * Math.PI * 2 + rIdx;
       const hLng = lon + Math.cos(angle) * dist;
       const hLat = lat + Math.sin(angle) * dist;
+      if (entity.geometry.type !== 'Point' && !isPointInsideEntityGeometry([hLng, hLat], entity.geometry)) {
+        continue;
+      }
 
       const hW = 22 + (i * 7) % 18;
       const hD = 22 + (i * 13) % 18;
@@ -1088,11 +1303,14 @@ export function createTownStructureEntities(
 
   // Defensive Outer Stone Walls & Drawbridge Gatehouse for Cities
   if (isCity) {
-    const wallRadius = 0.0035;
+    const wallRadius = layoutRadius;
     for (let segment = 0; segment < 8; segment++) {
       const angle = (segment / 8) * Math.PI * 2;
       const wLng = lon + Math.cos(angle) * wallRadius;
       const wLat = lat + Math.sin(angle) * wallRadius;
+      if (entity.geometry.type !== 'Point' && !isPointInsideEntityGeometry([wLng, wLat], entity.geometry)) {
+        continue;
+      }
 
       // Watchtowers with Conical Roofs
       structures.push(

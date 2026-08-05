@@ -16,7 +16,10 @@ import {
 } from '@/globe/CesiumViewer';
 import { syncEntitiesToCesium, resetEntitySyncState } from '@/globe/entitySync';
 import { flyToWorldCamera } from '@/globe/camera';
-import { WalkOverlay } from '@/walk/WalkOverlay';
+import {
+  clearWalkVoxelGlobeOverlay,
+  syncWalkVoxelsToGlobe,
+} from '@/globe/walkVoxelGlobeOverlay';
 
 /**
  * Returns true when the world should render as a fantasy/custom globe
@@ -35,6 +38,8 @@ export function GlobeView() {
   const world = useWorldStore((s) => s.worlds[s.activeWorldId!] ?? s.world);
   const worldEntities = useWorldStore((s) => s.worlds[s.activeWorldId!]?.entities ?? {});
   const worldUpdatedAt = useWorldStore((s) => s.worlds[s.activeWorldId!]?.updatedAt);
+  const voxelChunks = useWorldStore((s) => s.worlds[s.activeWorldId!]?.voxelChunks);
+  const generatedVoxelChunks = useWorldStore((s) => s.worlds[s.activeWorldId!]?.generatedVoxelChunks);
   const selectedId = useWorldStore((s) => s.selectedId);
 
   // Mount Cesium once. DrawController lifecycle is owned exclusively by
@@ -44,7 +49,11 @@ export function GlobeView() {
     const container = containerRef.current;
     if (!container) return;
     createTerraforgeViewer(container);
-    return () => { destroyTerraforgeViewer(); };
+    return () => {
+      const viewer = getViewer();
+      if (viewer) clearWalkVoxelGlobeOverlay(viewer);
+      destroyTerraforgeViewer();
+    };
   }, []);
 
   /**
@@ -59,7 +68,7 @@ export function GlobeView() {
     const theme = world.properties?.theme ?? 'medieval';
     setFantasyWorldFlag(fantasy);
     const v = getViewer();
-    if (v) {
+    if (v && !v.isDestroyed()) {
       resetEntitySyncState();
       v.entities.removeAll();
       setGlobeImageryStyle(
@@ -83,7 +92,7 @@ export function GlobeView() {
   useEffect(() => {
     if (!world) return;
     const v = getViewer();
-    if (!v) return;
+    if (!v || v.isDestroyed()) return;
     const theme = world.properties?.theme ?? 'medieval';
     // On persistence load (updatedAt change without id change), do a full
     // re-sync so freshly loaded entities appear. No camera fly.
@@ -93,19 +102,26 @@ export function GlobeView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldEntities, worldUpdatedAt, selectedId]);
 
-  // Auto-save on every world mutation
   useEffect(() => {
-    useWorldStore.getState().saveActiveWorld().catch(() => {});
-  }, [world]);
+    const viewer = getViewer();
+    if (!viewer || viewer.isDestroyed()) return;
+    const sync = () => {
+      if (viewer.isDestroyed()) return;
+      syncWalkVoxelsToGlobe(viewer, voxelChunks, worldEntities, world?.seed, generatedVoxelChunks);
+    };
+    sync();
+    viewer.camera.moveEnd.addEventListener(sync);
+    return () => {
+      // React Strict Mode may run the viewer-owning effect's cleanup first.
+      if (!viewer.isDestroyed()) viewer.camera.moveEnd.removeEventListener(sync);
+    };
+  }, [activeWorldId, voxelChunks, generatedVoxelChunks, worldEntities, world?.seed]);
 
   return (
-    <>
-      <div
-        ref={containerRef}
-        className="absolute inset-0 h-full w-full"
-        id="cesium-container"
-      />
-      <WalkOverlay />
-    </>
+    <div
+      ref={containerRef}
+      className="absolute inset-0 h-full w-full"
+      id="cesium-container"
+    />
   );
 }

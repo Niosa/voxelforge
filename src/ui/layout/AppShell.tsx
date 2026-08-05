@@ -19,10 +19,18 @@ import { RealmStatsModal } from '@/ui/layout/RealmStatsModal';
 import { MapExportModal } from '@/ui/layout/MapExportModal';
 import { WeatherControlPanel } from '@/ui/layout/WeatherControlPanel';
 import { MobileControlsOverlay } from '@/ui/firstPerson/MobileControlsOverlay';
+import { useWalkStore } from '@/state/walkStore';
+import { CreationSettingsPanel } from '@/ui/tools/CreationSettingsPanel';
+import type { EntityType } from '@/entities/types';
+import { HierarchyGeneratorModal } from '@/ui/generation/HierarchyGeneratorModal';
 
 export function AppShell() {
   const tool = useUiStore((s) => s.tool);
+  const creationEntityType = useUiStore((s) => s.creationEntityType);
+  const smartBordersEnabled = useUiStore((s) => s.smartBordersEnabled);
   const firstPersonActive = useUiStore((s) => s.firstPersonActive);
+  const walkPhase = useWalkStore((s) => s.phase);
+  const immersiveMode = firstPersonActive || walkPhase !== 'globe';
 
   useKeyboardShortcuts();
 
@@ -75,6 +83,7 @@ export function AppShell() {
       <CreativeInventoryModal />
       <RealmStatsModal />
       <MapExportModal />
+      <HierarchyGeneratorModal />
       <MobileControlsOverlay />
 
       <div className="pointer-events-auto">
@@ -82,22 +91,22 @@ export function AppShell() {
       </div>
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-        {!firstPersonActive && (
+        {!immersiveMode && (
           <div className="pointer-events-auto">
             <TopBar />
           </div>
         )}
 
         {/* Floating Weather Control Bar (Top Right) */}
-        {!firstPersonActive && (
-          <div className="pointer-events-auto absolute top-16 right-4 z-30">
+        {!immersiveMode && (
+          <div className="pointer-events-auto absolute bottom-12 right-[21rem] z-30 hidden md:block xl:bottom-auto xl:top-16">
             <WeatherControlPanel />
           </div>
         )}
 
         {/* Active Drawing Banner */}
         {(tool === 'drawPolygon' || tool === 'placePoint' || tool === 'freehandDraw' || tool === 'designAssist' || tool === 'addPart' || tool === 'eraseRegion') && (
-          <div className="pointer-events-auto mx-auto mt-3 flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-teal-500/40 bg-slate-950/95 px-4 py-2.5 text-xs font-semibold text-teal-200 backdrop-blur-md shadow-2xl animate-fadeIn z-40 max-w-4xl">
+          <div className="pointer-events-auto z-40 mx-auto mt-2 flex max-h-[42dvh] w-[calc(100%-1rem)] max-w-4xl flex-wrap items-center justify-center gap-2 overflow-y-auto rounded-xl border border-teal-500/40 bg-slate-950/95 px-3 py-2 text-xs font-semibold text-teal-200 shadow-2xl backdrop-blur-md animate-fadeIn sm:w-auto sm:rounded-2xl">
             {tool === 'drawPolygon' && (
               <>
                 <span>✏️ Draw Polygon:</span>
@@ -146,8 +155,8 @@ export function AppShell() {
 
             {(tool === 'drawPolygon' || tool === 'placePoint' || tool === 'freehandDraw' || tool === 'designAssist') && (
             <>
-            <div className="flex items-center gap-1 border-l border-r border-white/15 px-3 py-0.5">
-              <span className="text-[11px] text-slate-400 font-normal mr-1">Type:</span>
+            <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto px-1 py-0.5 sm:border-l sm:border-r sm:border-white/15 sm:px-3">
+              <span className="sticky left-0 mr-1 bg-slate-950 pr-1 text-[11px] font-normal text-slate-400">Type:</span>
               {[
                 { id: 'continent', label: '🌍 Continent' },
                 { id: 'region', label: '🗺️ Region' },
@@ -156,13 +165,13 @@ export function AppShell() {
                 { id: 'town', label: '🏡 Town' },
                 { id: 'landmark', label: '🚩 Landmark' },
               ].map((t) => {
-                const isSelected = useUiStore.getState().creationEntityType === t.id;
+                const isSelected = creationEntityType === t.id;
                 return (
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => useUiStore.getState().setCreationEntityType(t.id as any)}
-                    className={`rounded-md px-2 py-0.5 text-[11px] transition ${
+                    onClick={() => useUiStore.getState().setCreationEntityType(t.id as EntityType)}
+                    className={`shrink-0 rounded-md px-2 py-1 text-[11px] transition ${
                       isSelected
                         ? 'bg-teal-400 text-slate-950 font-bold shadow-sm'
                         : 'bg-white/5 text-slate-300 hover:bg-white/15 hover:text-white'
@@ -176,18 +185,29 @@ export function AppShell() {
 
             <button
               type="button"
-              onClick={() => useUiStore.getState().setSmartBordersEnabled(!useUiStore.getState().smartBordersEnabled)}
+              onClick={() => useUiStore.getState().setSmartBordersEnabled(!smartBordersEnabled)}
               title="Automatically snaps shared boundaries with neighboring landmasses while preserving nested enclaves"
               className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition flex items-center gap-1 ${
-                useUiStore.getState().smartBordersEnabled
+                smartBordersEnabled
                   ? 'border border-emerald-500/40 bg-emerald-500/20 text-emerald-300'
                   : 'border border-slate-700 bg-slate-800 text-slate-400'
               }`}
             >
               <span>🧲 Smart Borders:</span>
-              <span>{useUiStore.getState().smartBordersEnabled ? 'ON' : 'OFF'}</span>
+              <span>{smartBordersEnabled ? 'ON' : 'OFF'}</span>
             </button>
             </>
+            )}
+
+            {(tool === 'drawPolygon' || tool === 'freehandDraw' || tool === 'placePoint') && (
+              <details className="group basis-full rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1">
+                <summary className="cursor-pointer list-none text-center text-[11px] font-semibold text-slate-300 marker:hidden">
+                  <span className="group-open:hidden">Customize terrain or settlement</span>
+                  <span className="hidden group-open:inline">Hide creation settings</span>
+                  <span className="ml-1 text-teal-400">⌄</span>
+                </summary>
+                <CreationSettingsPanel />
+              </details>
             )}
 
             <button
@@ -204,20 +224,24 @@ export function AppShell() {
         )}
 
         <div className="flex min-h-0 flex-1">
-          <div className="pointer-events-auto">
-            <ToolRail />
-          </div>
+          {!immersiveMode && (
+            <div className="pointer-events-auto md:shrink-0">
+              <ToolRail />
+            </div>
+          )}
           <div className="flex-1" />
-          {!firstPersonActive && (
-            <div className="pointer-events-auto">
+          {!immersiveMode && (
+            <div className="pointer-events-auto md:shrink-0">
               <InspectorPanel />
             </div>
           )}
         </div>
 
-        <div className="pointer-events-auto">
-          <StatusBar />
-        </div>
+        {!immersiveMode && (
+          <div className="pointer-events-auto">
+            <StatusBar />
+          </div>
+        )}
       </div>
     </div>
   );

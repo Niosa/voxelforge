@@ -93,6 +93,7 @@ interface WorldStore {
   world: World;
   selectedId: string | null;
   tool: ToolMode;
+  persistenceReady: boolean;
 
   select(id: string | null): void;
   upsertEntity(entity: TerraEntity): void;
@@ -165,13 +166,11 @@ export const useWorldStore = create<WorldStore>()(
     worlds: _initialWorlds,
     activeWorldId: initialActiveId,
 
-    get world(): World {
-      const s = get();
-      return s.worlds[s.activeWorldId!] ?? s.worlds[Object.keys(s.worlds)[0]!] ?? _defaultWorld;
-    },
+    world: _initialWorlds[initialActiveId] ?? _defaultWorld,
 
     selectedId: null,
     tool: 'select' as ToolMode,
+    persistenceReady: false,
     undoStack: [],
     redoStack: [],
 
@@ -189,6 +188,7 @@ export const useWorldStore = create<WorldStore>()(
         s.redoStack = [];
         w.entities[entity.id] = entity;
         w.updatedAt = Date.now();
+        s.world = w;
       });
     },
 
@@ -202,6 +202,7 @@ export const useWorldStore = create<WorldStore>()(
         s.redoStack = [];
         delete w.entities[id];
         w.updatedAt = Date.now();
+        s.world = w;
       });
     },
 
@@ -211,6 +212,7 @@ export const useWorldStore = create<WorldStore>()(
         if (!w) return;
         w.entities[entity.id] = entity;
         w.updatedAt = Date.now();
+        if (s.activeWorldId === worldId) s.world = w;
       });
     },
 
@@ -220,6 +222,7 @@ export const useWorldStore = create<WorldStore>()(
         if (!w) return;
         w.entities[entity.id] = { ...entity, updatedAt: Date.now() };
         w.updatedAt = Date.now();
+        if (s.activeWorldId === worldId) s.world = w;
       });
     },
 
@@ -229,6 +232,7 @@ export const useWorldStore = create<WorldStore>()(
         if (!w) return;
         delete w.entities[entityId];
         w.updatedAt = Date.now();
+        if (s.activeWorldId === worldId) s.world = w;
       });
     },
 
@@ -248,6 +252,7 @@ export const useWorldStore = create<WorldStore>()(
       set((s) => {
         s.worlds[id] = newWorld;
         s.activeWorldId = id;
+        s.world = newWorld;
       });
       setStoredActiveWorldId(id);
       saveWorldToDB(newWorld).catch(() => {});
@@ -268,6 +273,7 @@ export const useWorldStore = create<WorldStore>()(
           }
           setStoredActiveWorldId(s.activeWorldId);
         }
+        s.world = s.worlds[s.activeWorldId!] ?? _defaultWorld;
       });
       deleteWorldFromDB(id).catch(() => {});
     },
@@ -276,7 +282,10 @@ export const useWorldStore = create<WorldStore>()(
       set((s) => {
         s.activeWorldId = id;
         const w = s.worlds[id];
-        if (w) w.updatedAt = Date.now();
+        if (w) {
+          w.updatedAt = Date.now();
+          s.world = w;
+        }
       });
       setStoredActiveWorldId(id);
       const w = get().worlds[id];
@@ -287,6 +296,7 @@ export const useWorldStore = create<WorldStore>()(
       set((s) => {
         s.worlds[world.id] = { ...world, updatedAt: Date.now() };
         s.activeWorldId = world.id;
+        s.world = s.worlds[world.id]!;
       });
       setStoredActiveWorldId(world.id);
       saveWorldToDB(world).catch(() => {});
@@ -298,6 +308,7 @@ export const useWorldStore = create<WorldStore>()(
         if (w) {
           recipe(w);
           w.updatedAt = Date.now();
+          if (s.activeWorldId === id) s.world = w;
         }
       });
       const updated = get().worlds[id];
@@ -310,6 +321,7 @@ export const useWorldStore = create<WorldStore>()(
         if (!w) return;
         w.properties = { ...w.properties, ...props };
         w.updatedAt = Date.now();
+        s.world = w;
       });
       const w = get().world;
       if (w) saveWorldToDB(w).catch(() => {});
@@ -321,6 +333,7 @@ export const useWorldStore = create<WorldStore>()(
         if (w) {
           w.name = name;
           w.updatedAt = Date.now();
+          s.world = w;
         }
       });
       const w = get().world;
@@ -330,10 +343,6 @@ export const useWorldStore = create<WorldStore>()(
     async saveActiveWorld() {
       const activeId = get().activeWorldId;
       if (!activeId) return;
-      set((s) => {
-        const w = s.worlds[activeId];
-        if (w) w.updatedAt = Date.now();
-      });
       const w = get().worlds[activeId];
       if (w) await saveWorldToDB(w);
     },
@@ -362,6 +371,10 @@ export const useWorldStore = create<WorldStore>()(
                 ...fresh,
                 entities: hasUserEntities ? w.entities : fresh.entities,
                 voxelChunks: w.voxelChunks ?? {},
+                generatedVoxelChunks: w.generatedVoxelChunks ?? {},
+                walkAnchor: w.walkAnchor,
+                npcs: w.npcs ?? fresh.npcs,
+                mobs: w.mobs ?? fresh.mobs,
                 updatedAt: w.updatedAt ?? Date.now(),
               };
             } else {
@@ -380,9 +393,14 @@ export const useWorldStore = create<WorldStore>()(
           // Stamp a fresh updatedAt so GlobeView's [world?.updatedAt] dep always
           // detects the persistence-load swap even when the world ID hasn't changed.
           const activeW = st.worlds[st.activeWorldId!];
-          if (activeW) activeW.updatedAt = Date.now();
+          if (activeW) {
+            activeW.updatedAt = Date.now();
+            st.world = activeW;
+          }
         });
-      }).catch(() => { /* persistence not available */ });
+      }).catch(() => { /* persistence not available */ }).finally(() => {
+        set((st) => { st.persistenceReady = true; });
+      });
     },
 
     loadSampleWorld(presetId) {
@@ -410,6 +428,7 @@ export const useWorldStore = create<WorldStore>()(
       set((s) => {
         s.worlds[stableId] = newWorld;
         s.activeWorldId = stableId;
+        s.world = newWorld;
       });
       setStoredActiveWorldId(stableId);
       saveWorldToDB(newWorld).catch(() => {});
@@ -426,6 +445,7 @@ export const useWorldStore = create<WorldStore>()(
         const current = JSON.parse(JSON.stringify(s.worlds));
         s.redoStack.push(current as unknown as World[]);
         s.worlds = snap as unknown as Record<string, World>;
+        s.world = s.worlds[s.activeWorldId!] ?? s.worlds[Object.keys(s.worlds)[0]!] ?? _defaultWorld;
       });
     },
 
@@ -436,6 +456,7 @@ export const useWorldStore = create<WorldStore>()(
         const current = JSON.parse(JSON.stringify(s.worlds));
         s.undoStack.push(current as unknown as World[]);
         s.worlds = snap as unknown as Record<string, World>;
+        s.world = s.worlds[s.activeWorldId!] ?? s.worlds[Object.keys(s.worlds)[0]!] ?? _defaultWorld;
       });
     },
   })),

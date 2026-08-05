@@ -16,6 +16,17 @@ import {
   DistanceDisplayCondition,
   ConstantPositionProperty,
   ClassificationType,
+  Primitive,
+  Geometry,
+  GeometryAttribute,
+  GeometryAttributes,
+  GeometryInstance,
+  GeometryPipeline,
+  ComponentDatatype,
+  PrimitiveType,
+  BoundingSphere,
+  Material,
+  MaterialAppearance,
 } from 'cesium';
 import type { TerraEntity } from '@/entities/types';
 import { geometryCentroid } from '@/geo/centroid';
@@ -32,6 +43,9 @@ import {
 } from '@/globe/CesiumViewer';
 import { trafficManager } from '@/globe/trafficManager';
 import { syncWorldBordersData } from '@/globe/borderOverlay';
+import { lonLatToPlanetMeters, planetMetersToLonLat } from '@/planet/spatial/PlanetGrid';
+import { FOLIAGE_CELL_SIZE, foliageCellHasTree, foliageTreePosition, naturalPondAt } from '@/planet/terrain/PlanetTerrainSampler';
+import { createReliefMeshData } from '@/globe/proceduralRelief';
 
 interface BoundingBox {
   minLon: number;
@@ -42,6 +56,7 @@ interface BoundingBox {
 
 interface ManagedRecord {
   cesiumEntities: Entity[];
+  cesiumPrimitives: Primitive[];
   entityRef: TerraEntity;
   updatedAt: number;
   selected: boolean;
@@ -80,6 +95,7 @@ function applyFrustumCulling(viewer: Viewer): void {
       for (const e of record.cesiumEntities) {
         e.show = true;
       }
+      for (const primitive of record.cesiumPrimitives) primitive.show = true;
     }
     return;
   }
@@ -90,6 +106,7 @@ function applyFrustumCulling(viewer: Viewer): void {
       for (const e of record.cesiumEntities) {
         e.show = true;
       }
+      for (const primitive of record.cesiumPrimitives) primitive.show = true;
     }
     return;
   }
@@ -114,7 +131,13 @@ function applyFrustumCulling(viewer: Viewer): void {
     for (const e of record.cesiumEntities) {
       if (e.show !== inView) e.show = inView;
     }
+    for (const primitive of record.cesiumPrimitives) primitive.show = inView;
   }
+}
+
+function removeManagedRecord(viewer: Viewer, record: ManagedRecord): void {
+  for (const entity of record.cesiumEntities) viewer.entities.remove(entity);
+  for (const primitive of record.cesiumPrimitives) viewer.scene.primitives.remove(primitive);
 }
 
 function computeEntityBoundingBox(entity: TerraEntity): BoundingBox {
@@ -150,6 +173,151 @@ function computeEntityBoundingBox(entity: TerraEntity): BoundingBox {
   }
 
   return { minLon, maxLon, minLat, maxLat };
+}
+
+function pointInRing(lon: number, lat: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const [xi = 0, yi = 0] = ring[index] ?? [];
+    const [xj = 0, yj = 0] = ring[previous] ?? [];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function entityContainsPoint(entity: TerraEntity, lon: number, lat: number): boolean {
+  if (entity.geometry.type === 'Point') return false;
+  const polygons = entity.geometry.type === 'Polygon' ? [entity.geometry.coordinates] : entity.geometry.coordinates;
+  return polygons.some((polygon) => {
+    const outer = polygon[0] as number[][] | undefined;
+    if (!outer || !pointInRing(lon, lat, outer)) return false;
+    return !polygon.slice(1).some((hole) => pointInRing(lon, lat, hole as number[][]));
+  });
+}
+
+function createGlobeFoliageEntities(entity: TerraEntity, worldSeed: number, reliefHeight: number): Entity[] {
+  if (entity.type === 'city' || entity.type === 'town' || entity.geometry.type === 'Point') return [];
+  const climate = String(entity.properties.climate ?? 'temperate');
+  let biome = String(entity.properties.biome ?? 'custom') as BiomeType;
+  if (climate === 'tropical' || climate === 'swamp') biome = 'forest-canopy';
+  if (climate === 'frigid' && (biome === 'custom' || biome === 'satellite-blend')) biome = 'snowy-tundra';
+  const denseForest = biome === 'forest-canopy' || entity.tags.some((tag) => tag.toLowerCase().includes('forest'));
+  if (!denseForest && biome !== 'lush-grassland' && biome !== 'snowy-tundra' && biome !== 'coastal-beach') return [];
+
+  const bounds = computeEntityBoundingBox(entity);
+  const [minX, minZ] = lonLatToPlanetMeters(bounds.minLon, bounds.minLat);
+  const [maxX, maxZ] = lonLatToPlanetMeters(bounds.maxLon, bounds.maxLat);
+  const minCellX = Math.floor(Math.min(minX, maxX) / FOLIAGE_CELL_SIZE);
+  const maxCellX = Math.ceil(Math.max(minX, maxX) / FOLIAGE_CELL_SIZE);
+  const minCellZ = Math.floor(Math.min(minZ, maxZ) / FOLIAGE_CELL_SIZE);
+  const maxCellZ = Math.ceil(Math.max(minZ, maxZ) / FOLIAGE_CELL_SIZE);
+  const maxTrees = useUiStore.getState().performanceMode ? 12 : 48;
+  const totalCells = Math.max(1, (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1));
+  const stride = Math.max(1, Math.ceil(Math.sqrt(totalCells / (maxTrees * 3))));
+  const [centerLon, centerLat] = geometryCentroid(entity.geometry);
+  const entityArea = getEntityArea(entity);
+  const possibleOverrides = Object.values(useWorldStore.getState().world.entities).filter((candidate) =>
+    candidate.id !== entity.id
+    && candidate.geometry.type !== 'Point'
+    && getEntityArea(candidate) < entityArea
+    && (
+      candidate.type === 'city' || candidate.type === 'town'
+      || candidate.properties.biome !== undefined
+      || candidate.properties.climate !== undefined
+      || candidate.properties.topography !== undefined
+    ),
+  );
+  const halfLon = Math.max(0.00001, (bounds.maxLon - bounds.minLon) / 2);
+  const halfLat = Math.max(0.00001, (bounds.maxLat - bounds.minLat) / 2);
+  const result: Entity[] = [];
+  let treeCount = 0;
+  for (let cellZ = minCellZ; cellZ <= maxCellZ && treeCount < maxTrees; cellZ += stride) {
+    for (let cellX = minCellX; cellX <= maxCellX && treeCount < maxTrees; cellX += stride) {
+      if (!foliageCellHasTree(worldSeed, biome, denseForest, cellX, cellZ)) continue;
+      const [treeX, treeZ] = foliageTreePosition(worldSeed, cellX, cellZ);
+      const [lon, lat] = planetMetersToLonLat(treeX, treeZ);
+      if (!entityContainsPoint(entity, lon, lat)) continue;
+      if (possibleOverrides.some((candidate) => entityContainsPoint(candidate, lon, lat))) continue;
+      const normalizedRadius = Math.min(1, Math.hypot((lon - centerLon) / halfLon, (lat - centerLat) / halfLat));
+      const terrainOffset = reliefHeight > 0 ? reliefHeight * Math.max(0.12, 1 - normalizedRadius) : 0;
+      const trunkHeight = biome === 'snowy-tundra' ? 5 : 6;
+      const canopyColor = biome === 'snowy-tundra' ? '#dbeafe'
+        : biome === 'coastal-beach' ? '#65a30d'
+        : climate === 'tropical' ? '#047857'
+        : '#15803d';
+      result.push(
+        new Entity({
+          name: `${entity.name} foliage trunk ${cellX}:${cellZ}`,
+          position: Cartesian3.fromDegrees(lon, lat, terrainOffset + trunkHeight / 2),
+          box: {
+            dimensions: new Cartesian3(1.4, 1.4, trunkHeight),
+            material: Color.fromCssColorString('#713f12'),
+            heightReference: HeightReference.RELATIVE_TO_GROUND,
+            distanceDisplayCondition: new DistanceDisplayCondition(0, 75_000),
+          },
+        }),
+        new Entity({
+          name: `${entity.name} foliage canopy ${cellX}:${cellZ}`,
+          position: Cartesian3.fromDegrees(lon, lat, terrainOffset + trunkHeight + 2.5),
+          box: {
+            dimensions: new Cartesian3(5, 5, 5),
+            material: Color.fromCssColorString(canopyColor),
+            heightReference: HeightReference.RELATIVE_TO_GROUND,
+            distanceDisplayCondition: new DistanceDisplayCondition(0, 75_000),
+          },
+        }),
+      );
+      treeCount++;
+    }
+  }
+  return result;
+}
+
+function createGlobeNaturalWaterEntities(entity: TerraEntity, worldSeed: number, reliefHeight: number): Entity[] {
+  if (entity.geometry.type === 'Point' || entity.type === 'city' || entity.type === 'town') return [];
+  const climate = String(entity.properties.climate ?? 'temperate');
+  const biome = climate === 'tropical' || climate === 'swamp'
+    ? 'forest-canopy'
+    : String(entity.properties.biome ?? 'custom') as BiomeType;
+  if (biome !== 'forest-canopy') return [];
+  const bounds = computeEntityBoundingBox(entity);
+  const [minX, minZ] = lonLatToPlanetMeters(bounds.minLon, bounds.minLat);
+  const [maxX, maxZ] = lonLatToPlanetMeters(bounds.maxLon, bounds.maxLat);
+  const [centerLon, centerLat] = geometryCentroid(entity.geometry);
+  const halfLon = Math.max(0.00001, (bounds.maxLon - bounds.minLon) / 2);
+  const halfLat = Math.max(0.00001, (bounds.maxLat - bounds.minLat) / 2);
+  const result: Entity[] = [];
+  const seen = new Set<string>();
+  const grid = useUiStore.getState().performanceMode ? 4 : 8;
+  for (let row = 0; row <= grid && result.length < 10; row++) {
+    for (let column = 0; column <= grid && result.length < 10; column++) {
+      const sampleX = minX + (maxX - minX) * (column + 0.37) / (grid + 1);
+      const sampleZ = minZ + (maxZ - minZ) * (row + 0.61) / (grid + 1);
+      const candidate = naturalPondAt(worldSeed, sampleX, sampleZ, biome);
+      const pond = naturalPondAt(worldSeed, candidate.centerX, candidate.centerZ, biome);
+      const key = `${pond.centerX},${pond.centerZ}`;
+      if (!pond.water || seen.has(key)) continue;
+      const [lon, lat] = planetMetersToLonLat(pond.centerX, pond.centerZ);
+      if (!entityContainsPoint(entity, lon, lat)) continue;
+      seen.add(key);
+      const normalizedRadius = Math.min(1, Math.hypot((lon - centerLon) / halfLon, (lat - centerLat) / halfLat));
+      const terrainOffset = reliefHeight > 0 ? reliefHeight * Math.max(0.06, (1 - normalizedRadius) * 0.35) : 2;
+      result.push(new Entity({
+        name: `${entity.name} natural pond ${key}`,
+        position: Cartesian3.fromDegrees(lon, lat),
+        ellipse: {
+          semiMajorAxis: pond.radius * 1.5,
+          semiMinorAxis: pond.radius,
+          height: terrainOffset,
+          material: Color.fromCssColorString('#0891b2').withAlpha(0.82),
+          outline: true,
+          outlineColor: Color.fromCssColorString('#67e8f9').withAlpha(0.65),
+          distanceDisplayCondition: new DistanceDisplayCondition(0, 350_000),
+        },
+      }));
+    }
+  }
+  return result;
 }
 
 function getLabelDistanceDisplayCondition(
@@ -252,9 +420,7 @@ let activeViewer: Viewer | null = null;
 export function resetEntitySyncState(): void {
   if (activeViewer && !activeViewer.isDestroyed()) {
     for (const record of managed.values()) {
-      for (const e of record.cesiumEntities) {
-        activeViewer.entities.remove(e);
-      }
+      removeManagedRecord(activeViewer, record);
     }
   }
   managed.clear();
@@ -293,9 +459,7 @@ export function syncEntitiesToCesium(
   if (managed.size > 0) {
     if (nextIds.size === 0) {
       for (const record of managed.values()) {
-        for (const e of record.cesiumEntities) {
-          viewer.entities.remove(e);
-        }
+        removeManagedRecord(viewer, record);
       }
       managed.clear();
       contentChanged = true;
@@ -309,9 +473,7 @@ export function syncEntitiesToCesium(
       }
       if (!hasIntersection) {
         for (const record of managed.values()) {
-          for (const e of record.cesiumEntities) {
-            viewer.entities.remove(e);
-          }
+          removeManagedRecord(viewer, record);
         }
         managed.clear();
         contentChanged = true;
@@ -321,9 +483,7 @@ export function syncEntitiesToCesium(
 
   for (const [id, record] of managed) {
     if (!nextIds.has(id)) {
-      for (const e of record.cesiumEntities) {
-        viewer.entities.remove(e);
-      }
+      removeManagedRecord(viewer, record);
       managed.delete(id);
       contentChanged = true;
     }
@@ -353,9 +513,7 @@ export function syncEntitiesToCesium(
     }
 
     if (existing) {
-      for (const e of existing.cesiumEntities) {
-        viewer.entities.remove(e);
-      }
+      removeManagedRecord(viewer, existing);
       managed.delete(entity.id);
     }
 
@@ -369,8 +527,9 @@ export function syncEntitiesToCesium(
     }
 
     let cesiumEntities: Entity[];
+    const cesiumPrimitives: Primitive[] = [];
     try {
-      cesiumEntities = upsertCesiumEntity(viewer, entity, isSelected, zRank);
+      cesiumEntities = upsertCesiumEntity(viewer, entity, isSelected, zRank, cesiumPrimitives);
     } catch (err) {
       // Isolate per-entity failures so one bad entity cannot break the entire sync.
       console.error(`[entitySync] Failed to sync entity "${entity.name}" (${entity.id}):`, err);
@@ -392,6 +551,7 @@ export function syncEntitiesToCesium(
 
     managed.set(entity.id, {
       cesiumEntities,
+      cesiumPrimitives,
       entityRef: entity,
       updatedAt: entity.updatedAt,
       selected: isSelected,
@@ -444,11 +604,82 @@ export function getSafeTerrainElevation(viewer: Viewer, lon: number, lat: number
   return 0;
 }
 
+function createReliefPrimitive(
+  viewer: Viewer,
+  entity: TerraEntity,
+  reliefHeight: number,
+  biome: BiomeType,
+  fillAlpha: number,
+  textureResolution: number,
+  gridResolution: number,
+): Primitive | null {
+  const mesh = createReliefMeshData(entity, reliefHeight, gridResolution);
+  if (mesh.vertices.length === 0 || mesh.indices.length === 0) return null;
+
+  const positions = new Float64Array(mesh.vertices.length * 3);
+  const textureCoordinates = new Float32Array(mesh.vertices.length * 2);
+  const cartesianPositions: Cartesian3[] = [];
+  for (let index = 0; index < mesh.vertices.length; index++) {
+    const vertex = mesh.vertices[index]!;
+    const position = Cartesian3.fromDegrees(vertex.lon, vertex.lat, vertex.height);
+    cartesianPositions.push(position);
+    positions[index * 3] = position.x;
+    positions[index * 3 + 1] = position.y;
+    positions[index * 3 + 2] = position.z;
+    textureCoordinates[index * 2] = vertex.u;
+    textureCoordinates[index * 2 + 1] = vertex.v;
+  }
+
+  const attributes = new GeometryAttributes();
+  attributes.position = new GeometryAttribute({
+    componentDatatype: ComponentDatatype.DOUBLE,
+    componentsPerAttribute: 3,
+    values: positions,
+  });
+  attributes.st = new GeometryAttribute({
+    componentDatatype: ComponentDatatype.FLOAT,
+    componentsPerAttribute: 2,
+    values: textureCoordinates,
+  });
+  let geometry = new Geometry({
+    attributes,
+    indices: new Uint32Array(mesh.indices),
+    primitiveType: PrimitiveType.TRIANGLES,
+    boundingSphere: BoundingSphere.fromPoints(cartesianPositions),
+  });
+  geometry = GeometryPipeline.computeNormal(geometry);
+
+  const texture = getBiomeTextureDataUrl({
+    biome,
+    color: entity.color,
+    seedStr: `${entity.id}_relief`,
+    topography: entity.properties.topography as 'plains' | 'hills' | 'mountains' | 'valleys' | undefined,
+    climate: entity.properties.climate as 'temperate' | 'tropical' | 'arid' | 'frigid' | 'swamp' | undefined,
+    resolution: textureResolution,
+  });
+  const material = Material.fromType('Image', {
+    image: texture,
+    color: Color.WHITE.withAlpha(Math.max(0.45, fillAlpha)),
+  });
+  const primitive = new Primitive({
+    geometryInstances: new GeometryInstance({ id: entity.id, geometry }),
+    appearance: new MaterialAppearance({
+      material,
+      translucent: fillAlpha < 1,
+      closed: false,
+      faceForward: true,
+    }),
+    asynchronous: false,
+  });
+  return viewer.scene.primitives.add(primitive);
+}
+
 function upsertCesiumEntity(
   viewer: Viewer,
   entity: TerraEntity,
   selected: boolean,
   zRank = 0,
+  primitives: Primitive[] = [],
 ): Entity[] {
   const created: Entity[] = [];
 
@@ -480,6 +711,7 @@ function upsertCesiumEntity(
     const pinStyle = (entity.properties.pinStyle as PinStyle) || (entity.type === 'city' ? 'teardrop' : entity.type === 'landmark' ? 'beacon' : 'teardrop');
     const pinIcon = (entity.properties.pinIcon as PinIcon) || (entity.tags.includes('capital') ? 'capital' : entity.type === 'city' ? 'city' : entity.type === 'landmark' ? 'landmark' : 'pin');
     const pinHeight = (entity.properties.pinHeight as number) || 0;
+    const isWalkEntry = entity.properties.walkEntry === true;
 
     // 1st-Person Minecraft Voxel Blocks are no longer rendered here!
     // They are natively managed and rendered via VoxelChunkManager and VoxelRenderer.
@@ -498,7 +730,7 @@ function upsertCesiumEntity(
       style: pinStyle,
       icon: pinIcon,
       selected,
-      size: selected ? 72 : 56,
+      size: selected ? 76 : isWalkEntry ? 64 : 56,
     });
 
     const position = Cartesian3.fromDegrees(lon, lat, pinHeight);
@@ -582,105 +814,86 @@ function upsertCesiumEntity(
   // Polygon / MultiPolygon
   const geom = entity.geometry;
   const isPolygon = geom.type === 'Polygon' || geom.type === 'MultiPolygon';
-  const extrudedHeight = (entity.properties.extrudedHeight as number) ?? 0;
+  const topography = String(entity.properties.topography ?? 'plains');
+  const authoredRelief = Number(entity.properties.reliefHeight);
+  const legacyExtrusion = Number(entity.properties.extrudedHeight) || 0;
+  const defaultRelief = topography === 'mountains' ? 2_400
+    : topography === 'hills' ? 450
+    : topography === 'valleys' ? 300
+    : 0;
+  const extrudedHeight = Number.isFinite(authoredRelief) && authoredRelief >= 0
+    ? authoredRelief
+    : legacyExtrusion > 0 ? legacyExtrusion : defaultRelief;
   let biome = (entity.properties.biome as BiomeType) ?? 'custom';
   if (isPolygon && (entity.type === 'city' || entity.type === 'town')) {
     const theme = useWorldStore.getState().world.properties?.theme || 'medieval';
     biome = theme === 'modern' ? 'city-urban' : 'town-village';
   }
   const nameLower = entity.name.toLowerCase();
-  const isMountain = extrudedHeight > 0 && (biome === 'mountain-slate' || nameLower.includes('mountain') || nameLower.includes('peak') || nameLower.includes('hills') || nameLower.includes('ered') || nameLower.includes('hitaeglir'));
+  const isMountain = extrudedHeight > 0 && (
+    topography === 'mountains' || topography === 'hills' || topography === 'valleys'
+    || biome === 'mountain-slate' || nameLower.includes('mountain') || nameLower.includes('peak')
+    || nameLower.includes('hills') || nameLower.includes('ered') || nameLower.includes('hitaeglir')
+  );
 
   if (isPolygon && isMountain) {
-    const ring = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0]?.[0] ?? [];
-    if (ring && ring.length > 0) {
-      const centroid: [number, number] = [lon, lat];
-      // Generate 5 nested concentric tiers to build a smooth sloped mountain range profile
-      const tiers = [
-        { scale: 1.00, heightCoeff: 0.15, biomeType: biome, opacity: fillAlpha },
-        { scale: 0.82, heightCoeff: 0.40, biomeType: biome, opacity: fillAlpha },
-        { scale: 0.64, heightCoeff: 0.65, biomeType: 'mountain-slate' as BiomeType, opacity: fillAlpha },
-        { scale: 0.44, heightCoeff: 0.85, biomeType: 'mountain-slate' as BiomeType, opacity: fillAlpha },
-        { scale: 0.22, heightCoeff: 1.00, biomeType: (biome === 'volcanic-ash' ? 'volcanic-ash' : 'snowy-tundra') as BiomeType, opacity: fillAlpha + 0.1 },
-      ];
+    const reliefBounds = computeEntityBoundingBox(entity);
+    const meanLatitude = (reliefBounds.minLat + reliefBounds.maxLat) / 2;
+    const spanKm = Math.max(
+      (reliefBounds.maxLon - reliefBounds.minLon) * 111 * Math.max(0.2, Math.cos(meanLatitude * Math.PI / 180)),
+      (reliefBounds.maxLat - reliefBounds.minLat) * 111,
+    );
+    // Large authored regions need map-scale exaggeration to remain legible at
+    // orbital camera distances, just as terrain viewers offer vertical exaggeration.
+    const visualReliefScale = Math.max(1, Math.min(4, Math.sqrt(Math.max(1, spanKm) / 80)));
+    const displayReliefHeight = extrudedHeight * visualReliefScale;
+    const reliefGridResolution = useUiStore.getState().performanceMode
+      ? Math.max(16, Math.min(40, Math.round(Math.sqrt(spanKm) * 0.75)))
+      : Math.max(32, Math.min(96, Math.round(Math.sqrt(spanKm) * 1.5)));
+    const reliefPrimitive = createReliefPrimitive(
+      viewer,
+      entity,
+      displayReliefHeight,
+      biome,
+      showFill ? fillAlpha : 0.82,
+      textureResolution,
+      reliefGridResolution,
+    );
+    if (reliefPrimitive) primitives.push(reliefPrimitive);
 
-      for (let tIdx = 0; tIdx < tiers.length; tIdx++) {
-        const tier = tiers[tIdx]!;
-        const scaledRing = ring.map(([lng, lt]) => [
-          centroid[0] + (lng - centroid[0]) * tier.scale,
-          centroid[1] + (lt - centroid[1]) * tier.scale,
-        ]);
-        const tierHierarchy = new PolygonHierarchy(
-          scaledRing.map(([lng, lt]) => Cartesian3.fromDegrees(lng, lt))
-        );
-        const tHeight = extrudedHeight * tier.heightCoeff;
+    const labelEntity = viewer.entities.add({
+      id: entity.id,
+      name: entity.name,
+      position: Cartesian3.fromDegrees(lon, lat, displayReliefHeight * 0.72),
+      label: {
+        text: entity.name,
+        font: selected ? 'bold 16px Inter, sans-serif' : '14px Inter, sans-serif',
+        fillColor: Color.WHITE,
+        outlineColor: Color.BLACK,
+        outlineWidth: 3,
+        style: 2,
+        verticalOrigin: VerticalOrigin.CENTER,
+        horizontalOrigin: HorizontalOrigin.CENTER,
+        distanceDisplayCondition: distCond,
+        disableDepthTestDistance: 10_000_000,
+        eyeOffset: new Cartesian3(0, 0, -50),
+      },
+    });
+    created.push(labelEntity);
 
-        let tierMaterial: ImageMaterialProperty | ColorMaterialProperty;
-        if (showFill && tier.biomeType !== 'custom') {
-          const dataUrl = getBiomeTextureDataUrl({
-            biome: tier.biomeType,
-            color: entity.color,
-            seedStr: `${entity.id}_tier_${tIdx}`,
-            topography: entity.properties.topography as any,
-            climate: entity.properties.climate as any,
-            resolution: textureResolution,
-          });
-          const bbox = computeEntityBoundingBox(entity);
-          const degWidth = Math.max(0.1, bbox.maxLon - bbox.minLon);
-          const degHeight = Math.max(0.1, bbox.maxLat - bbox.minLat);
-          const repeatX = Math.max(1, Math.round(degWidth / 1.5));
-          const repeatY = Math.max(1, Math.round(degHeight / 1.5));
-
-          tierMaterial = new ImageMaterialProperty({
-            image: dataUrl,
-            color: Color.WHITE.withAlpha(Math.min(1, tier.opacity)),
-            repeat: new Cartesian2(repeatX, repeatY),
-          });
-        } else {
-          tierMaterial = new ColorMaterialProperty(fillColor);
-        }
-
-        const tierEntity = viewer.entities.add({
-          name: `${entity.name} Tier ${tIdx + 1}`,
-          polygon: {
-            hierarchy: tierHierarchy,
-            material: tierMaterial,
-            outline: borderConfig.showOutline && tIdx === 0,
-            outlineColor: outlineColor,
-            outlineWidth: outlineWidth,
-            extrudedHeight: tHeight,
-            heightReference: HeightReference.NONE,
-          },
-        });
-        created.push(tierEntity);
-      }
-
-      // Add label at the very center peak
-      const labelEntity = viewer.entities.add({
-        id: entity.id,
-        name: entity.name,
-        position: Cartesian3.fromDegrees(lon, lat, extrudedHeight),
-        label: {
-          text: entity.name,
-          font: selected ? 'bold 16px Inter, sans-serif' : '14px Inter, sans-serif',
-          fillColor: Color.WHITE,
-          outlineColor: Color.BLACK,
-          outlineWidth: 3,
-          style: 2,
-          verticalOrigin: VerticalOrigin.CENTER,
-          horizontalOrigin: HorizontalOrigin.CENTER,
-          distanceDisplayCondition: distCond,
-          disableDepthTestDistance: 10_000_000,
-          eyeOffset: new Cartesian3(0, 0, -50),
-        },
-      });
-      created.push(labelEntity);
-
-      for (const ent of created) {
-        (ent as any).terraEntityId = entity.id;
-      }
-      return created;
+    for (const foliage of createGlobeFoliageEntities(
+      entity,
+      useWorldStore.getState().world.seed ?? 0,
+      displayReliefHeight,
+    )) {
+      created.push(viewer.entities.add(foliage));
     }
+    for (const water of createGlobeNaturalWaterEntities(entity, useWorldStore.getState().world.seed ?? 0, displayReliefHeight)) {
+      created.push(viewer.entities.add(water));
+    }
+
+    for (const ent of created) (ent as any).terraEntityId = entity.id;
+    return created;
   }
 
   let materialProperty: ImageMaterialProperty | ColorMaterialProperty;
@@ -753,6 +966,17 @@ function upsertCesiumEntity(
         : undefined,
     });
     created.push(polyEntity);
+  }
+
+  for (const foliage of createGlobeFoliageEntities(
+    entity,
+    useWorldStore.getState().world.seed ?? 0,
+    extrudedHeight,
+  )) {
+    created.push(viewer.entities.add(foliage));
+  }
+  for (const water of createGlobeNaturalWaterEntities(entity, useWorldStore.getState().world.seed ?? 0, extrudedHeight)) {
+    created.push(viewer.entities.add(water));
   }
 
   // Cesium ignores polygon.outline on ground-clamped polygons (extrudedHeight <= 0).

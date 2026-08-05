@@ -10,9 +10,11 @@ import { immer } from 'zustand/middleware/immer';
 import type { WalkAnchor, VoxelChunkMap } from '@/entities/types';
 
 export type WalkPhase =
-  | 'globe'          // normal Cesium globe view
-  | 'transitioning'  // fade animation playing
-  | 'walk';          // noa voxel world active
+  | 'globe'
+  | 'descending'
+  | 'walk'
+  | 'ascending'
+  | 'error';
 
 interface WalkState {
   phase: WalkPhase;
@@ -21,12 +23,14 @@ interface WalkState {
   selectedBlockId: number;
   /** Snapshot of chunks at walk-mode entry (for WalkScene seed). */
   entryChunks: VoxelChunkMap;
+  error: string | null;
 
   // Actions
   beginDescent(anchor: WalkAnchor, chunks: VoxelChunkMap): void;
   confirmWalk(): void;
   beginAscent(): void;
   confirmGlobe(): void;
+  failTransition(message: string): void;
   setSelectedBlock(id: number): void;
 }
 
@@ -36,28 +40,44 @@ export const useWalkStore = create<WalkState>()(
     anchor: null,
     selectedBlockId: 3, // default: grass
     entryChunks: {},
+    error: null,
 
     beginDescent(anchor, chunks) {
       set((s) => {
-        s.phase = 'transitioning';
+        if (s.phase !== 'globe') return;
+        s.phase = 'descending';
         s.anchor = anchor;
         s.entryChunks = chunks;
+        s.error = null;
       });
     },
 
     confirmWalk() {
-      set((s) => { s.phase = 'walk'; });
+      set((s) => {
+        if (s.phase === 'descending') s.phase = 'walk';
+      });
     },
 
     beginAscent() {
-      set((s) => { s.phase = 'transitioning'; });
+      set((s) => {
+        if (s.phase === 'walk') s.phase = 'ascending';
+      });
     },
 
     confirmGlobe() {
       set((s) => {
+        if (s.phase !== 'ascending' && s.phase !== 'error') return;
         s.phase = 'globe';
         s.anchor = null;
         s.entryChunks = {};
+        s.error = null;
+      });
+    },
+
+    failTransition(message) {
+      set((s) => {
+        s.phase = 'error';
+        s.error = message;
       });
     },
 

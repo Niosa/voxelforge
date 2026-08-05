@@ -24,7 +24,11 @@ import { generateDesignAssistEntity } from '@/geo/designAssistGenerator';
 
 import { processSmartBorders } from '@/geo/smartBorders';
 import { syncEntitiesToCesium } from '@/globe/entitySync';
+import { resolvePickedWorldEntityId } from '@/globe/entityPicking';
 import type { EntityType } from '@/entities/types';
+import { buildCreationProperties } from '@/drawing/creationProperties';
+
+export { estimateSettlementPopulation } from '@/drawing/creationProperties';
 
 function getDefaultColorForType(type: EntityType): string {
   switch (type) {
@@ -43,15 +47,19 @@ function getDefaultNameForType(type: EntityType, count: number): string {
   return `${cap} ${count}`;
 }
 
-function simplifyRingPoints(points: [number, number][], minDistanceDeg = 0.0003): [number, number][] {
+export function simplifyRingPoints(points: [number, number][], minDistanceDeg?: number): [number, number][] {
   if (points.length <= 4) return points;
+  const lons = points.map((point) => point[0]);
+  const lats = points.map((point) => point[1]);
+  const drawingSpan = Math.hypot(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats));
+  const threshold = minDistanceDeg ?? Math.max(0.00001, Math.min(0.0003, drawingSpan / 30));
   const result: [number, number][] = [points[0]!];
   let last = points[0]!;
 
   for (let i = 1; i < points.length - 1; i++) {
     const pt = points[i]!;
     const dist = Math.hypot(pt[0] - last[0], pt[1] - last[1]);
-    if (dist >= minDistanceDeg) {
+    if (dist >= threshold) {
       result.push(pt);
       last = pt;
     }
@@ -68,6 +76,7 @@ export class DrawController {
   private isFreehandDrawing = false;
   private freehandCandidate = false;
   private freehandStartPoint: [number, number] | null = null;
+  private lastFreehandScreenPoint: { x: number; y: number } | null = null;
   private lastPointerDownPos: { x: number; y: number } | null = null;
   private lastProcessedClickTime = 0;
 
@@ -100,6 +109,22 @@ export class DrawController {
       this.lastProcessedClickTime = now;
 
       const mode = useUiStore.getState().tool;
+      if (mode === 'select') {
+        let picked: unknown;
+        try {
+          picked = viewer.scene.pick(clickPos);
+        } catch (_) {
+          picked = undefined;
+        }
+
+        const state = useWorldStore.getState();
+        const entityId = resolvePickedWorldEntityId(
+          picked,
+          new Set(Object.keys(state.world.entities)),
+        );
+        state.select(entityId);
+        return;
+      }
       if (mode !== 'drawPolygon' && mode !== 'placePoint' && mode !== 'designAssist' && mode !== 'addPart' && mode !== 'eraseRegion') return;
 
       const pos = this.pickGlobePosition(clickPos);
@@ -142,6 +167,7 @@ export class DrawController {
       this.isFreehandDrawing = true;
       this.clearPreview();
       this.currentPoints.push([lon, lat]);
+      this.lastFreehandScreenPoint = { x: movement.position.x, y: movement.position.y };
 
       viewer.scene.screenSpaceCameraController.enableRotate = false;
       viewer.scene.screenSpaceCameraController.enableTranslate = false;
@@ -156,13 +182,17 @@ export class DrawController {
       const [lon, lat] = pos;
 
       if (this.freehandCandidate && mode === 'addPart' && this.freehandStartPoint) {
-        const [slon, slat] = this.freehandStartPoint;
-        if (Math.hypot(lon - slon, lat - slat) < 0.005) return;
+        const startScreen = this.lastPointerDownPos;
+        if (startScreen && Math.hypot(
+          movement.endPosition.x - startScreen.x,
+          movement.endPosition.y - startScreen.y,
+        ) < 5) return;
         this.freehandCandidate = false;
         this.freehandStartPoint = null;
         this.isFreehandDrawing = true;
         this.clearPreview();
         this.currentPoints.push([lon, lat]);
+        this.lastFreehandScreenPoint = { x: movement.endPosition.x, y: movement.endPosition.y };
         viewer.scene.screenSpaceCameraController.enableRotate = false;
         viewer.scene.screenSpaceCameraController.enableTranslate = false;
       }
@@ -170,13 +200,16 @@ export class DrawController {
       if (!this.isFreehandDrawing) return;
       if (mode !== 'freehandDraw' && mode !== 'addPart') return;
 
-      const lastPoint = this.currentPoints[this.currentPoints.length - 1];
-      if (lastPoint) {
-        const dist = Math.hypot(lon - lastPoint[0], lat - lastPoint[1]);
-        if (dist < 0.005) return;
+      if (this.lastFreehandScreenPoint) {
+        const screenDistance = Math.hypot(
+          movement.endPosition.x - this.lastFreehandScreenPoint.x,
+          movement.endPosition.y - this.lastFreehandScreenPoint.y,
+        );
+        if (screenDistance < 5) return;
       }
 
       this.currentPoints.push([lon, lat]);
+      this.lastFreehandScreenPoint = { x: movement.endPosition.x, y: movement.endPosition.y };
       this.updatePolylinePreview();
       viewer.scene.requestRender();
     }, ScreenSpaceEventType.MOUSE_MOVE);
@@ -196,6 +229,7 @@ export class DrawController {
 
       this.freehandCandidate = false;
       this.freehandStartPoint = null;
+      this.lastFreehandScreenPoint = null;
       if (!this.isFreehandDrawing) return;
       this.isFreehandDrawing = false;
 
@@ -380,6 +414,7 @@ export class DrawController {
       fillOpacity: type === 'city' || type === 'town' || type === 'landmark' ? 0.8 : 0.5,
       geometry: processedGeom,
       parentId,
+      properties: buildCreationProperties(type, uiState.creationSettings, ring),
     });
 
     history.execute(new AddEntityCommand(newEntity));
@@ -406,6 +441,7 @@ export class DrawController {
     this.isFreehandDrawing = false;
     this.freehandCandidate = false;
     this.freehandStartPoint = null;
+    this.lastFreehandScreenPoint = null;
     this.clearPreview();
     useUiStore.getState().setTool('select');
   }
@@ -508,6 +544,7 @@ export class DrawController {
       fillOpacity: 1,
       geometry: rawGeom,
       parentId,
+      properties: buildCreationProperties(type, uiState.creationSettings),
     });
 
     history.execute(new AddEntityCommand(newCity));
@@ -580,6 +617,7 @@ export class DrawController {
     }
     this.previewEntities = [];
     this.currentPoints = [];
+    this.lastFreehandScreenPoint = null;
   }
 }
 

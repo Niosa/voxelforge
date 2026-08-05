@@ -83,18 +83,18 @@ export function useKeyboardShortcuts(): void {
         '1': 'select',
         '2': 'pan',
         '3': 'drawPolygon',
-        '4': 'placePoint',
-        '5': 'designAssist',
-        '6': 'freehandDraw',
-        '7': 'addPart',
-        '8': 'eraseRegion',
-        '9': 'walk',
+        '4': 'designAssist',
+        '5': 'freehandDraw',
+        '6': 'addPart',
+        '7': 'eraseRegion',
+        '8': 'walk',
       };
 
       if (toolMap[key]) {
         e.preventDefault();
-        if (key === '9') {
-          firstPersonController.enter();
+        if (key === '8') {
+          useUiStore.getState().setTool('walk');
+          window.__voxelforgeDescend?.();
           return;
         }
         if (toolMap[key] !== 'drawPolygon') {

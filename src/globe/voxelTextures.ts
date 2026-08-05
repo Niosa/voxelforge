@@ -6,11 +6,24 @@ const textureCache = new LruCache<string, string>(50);
 const materialCache = new LruCache<string, ImageMaterialProperty>(50);
 const cesiumMaterialCache = new LruCache<string, Material>(50);
 
+const PLACEHOLDER_BLOCK_TEXTURES: Partial<Record<FirstPersonBuildingType, string>> = {
+  house: '/textures/blocks/planks_oak.png',
+  castle: '/textures/blocks/stonebrick.png',
+  watchtower: '/textures/blocks/cobblestone_mossy.png',
+  gate: '/textures/blocks/door_wood_lower.png',
+  wall: '/textures/blocks/brick.png',
+  road: '/textures/blocks/grass_path_top.png',
+  flagpole: '/textures/blocks/planks_spruce.png',
+  tree: '/textures/blocks/azalea_leaves.png',
+};
+
 /**
  * Procedural Voxel Texture Generator.
  * Generates crisp 128x128 pixelated block textures (Wood, Stone Bricks, Cobblestone, Gold, Leaves, etc.)
  */
 export function getVoxelBlockTextureUrl(type: FirstPersonBuildingType): string {
+  const placeholder = PLACEHOLDER_BLOCK_TEXTURES[type];
+  if (placeholder) return placeholder;
   const cached = textureCache.get(type);
   if (cached) return cached;
 

@@ -43,8 +43,8 @@ export interface CameraState {
 }
 
 /**
- * A single placed voxel block, stored relative to the walk anchor.
- * bx/by/bz are integer offsets in metres from the anchor origin.
+ * A sparse voxel override in stable planet-metre coordinates.
+ * Legacy saves may contain anchor-relative coordinates and are migrated on entry.
  */
 export interface VoxelBlock {
   bx: number;
@@ -54,9 +54,12 @@ export interface VoxelBlock {
 }
 
 /**
- * Serialised chunk of voxel data. Key is "cx,cy,cz" in chunk coords.
+ * Serialised sparse voxel overrides. Current keys are "planet/cx,cy,cz".
  */
 export type VoxelChunkMap = Record<string, VoxelBlock[]>;
+
+/** Planet chunk keys that NOA has generated, stored with their last visit time. */
+export type GeneratedVoxelChunkMap = Record<string, number>;
 
 /**
  * The geodetic anchor for the walk-mode world.
@@ -65,6 +68,57 @@ export interface WalkAnchor {
   lon: number;
   lat: number;
   altM: number;
+}
+
+export type NpcOccupation = 'merchant' | 'innkeeper' | 'artisan' | 'farmer' | 'guard' | 'laborer';
+export type NpcActivity = 'sleep' | 'breakfast' | 'work' | 'lunch' | 'market' | 'tavern' | 'patrol' | 'leisure' | 'travel-home';
+export type SettlementBuildingUse = 'home' | 'shop' | 'inn' | 'workshop' | 'farm' | 'office' | 'civic';
+
+export interface NpcLocation {
+  x: number;
+  y: number;
+  z: number;
+  label: string;
+}
+
+export interface NpcScheduleEntry {
+  startHour: number;
+  activity: NpcActivity;
+  destination: 'home' | 'work' | 'market' | 'tavern' | 'patrol';
+}
+
+export interface WorldNpc {
+  id: string;
+  name: string;
+  settlementId: string;
+  occupation: NpcOccupation;
+  home: NpcLocation;
+  workplace: NpcLocation;
+  market: NpcLocation;
+  tavern: NpcLocation;
+  position: NpcLocation;
+  schedule: NpcScheduleEntry[];
+  currentActivity: NpcActivity;
+  relationships: Record<string, number>;
+  memories: string[];
+  conversationStage: number;
+  createdAt: number;
+  updatedAt: number;
+  lastSimulatedAt: number;
+}
+
+export type MobSpecies = 'pig' | 'cow' | 'sheep' | 'chicken';
+export type MobBehavior = 'idle' | 'wander' | 'flee';
+
+export interface WorldMob {
+  id: string;
+  species: MobSpecies;
+  position: NpcLocation;
+  home: NpcLocation;
+  health: number;
+  behavior: MobBehavior;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface World {
@@ -77,7 +131,10 @@ export interface World {
   version: 1;
   updatedAt?: number;
   voxelChunks?: VoxelChunkMap;
+  generatedVoxelChunks?: GeneratedVoxelChunkMap;
   walkAnchor?: WalkAnchor;
+  npcs?: Record<string, WorldNpc>;
+  mobs?: Record<string, WorldMob>;
 }
 
 export type ToolMode =

@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useUiStore, type WeatherType } from '@/state/uiStore';
 import { weatherAtmosphere } from '@/globe/weatherAtmosphere';
 import { soundEngine } from '@/audio/soundEngine';
 
 export function WeatherControlPanel() {
+  const [expanded, setExpanded] = useState(false);
   const timeOfDay = useUiStore((s) => s.timeOfDay);
   const setTimeOfDay = useUiStore((s) => s.setTimeOfDay);
   const weatherType = useUiStore((s) => s.weatherType);
@@ -29,18 +31,19 @@ export function WeatherControlPanel() {
   };
 
   return (
-    <div className="pointer-events-auto rounded-2xl border border-white/15 bg-slate-950/85 p-3 backdrop-blur-md shadow-xl flex flex-col gap-3 min-w-[240px]">
-      <div className="flex items-center justify-between">
+    <div className={`pointer-events-auto flex max-h-[min(60dvh,28rem)] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-y-auto rounded-xl border border-white/15 bg-slate-950/90 p-2 shadow-xl backdrop-blur-md ${expanded ? 'min-w-[min(240px,calc(100vw-1rem))]' : ''}`}>
+      <button type="button" onClick={() => setExpanded((open) => !open)} className="flex items-center justify-between gap-3 rounded-lg px-1 py-0.5 text-left hover:bg-white/5" aria-expanded={expanded}>
         <span className="text-xs font-bold text-teal-300 uppercase tracking-wider flex items-center gap-1.5">
           🌤️ Atmosphere & Weather
         </span>
         <span className="text-xs font-mono font-extrabold text-amber-300">
           {formatTimeStr(timeOfDay)}
         </span>
-      </div>
+        <span className="text-[10px] text-slate-400">{expanded ? '×' : '⌃'}</span>
+      </button>
 
       {/* Time of Day Slider */}
-      <div>
+      <div className={expanded ? '' : 'hidden'}>
         <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold mb-1">
           <span>🌙 00:00</span>
           <span>🌅 06:00</span>
@@ -60,7 +63,7 @@ export function WeatherControlPanel() {
       </div>
 
       {/* Weather Selector Buttons */}
-      <div>
+      <div className={expanded ? '' : 'hidden'}>
         <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
           Weather Conditions
         </span>
