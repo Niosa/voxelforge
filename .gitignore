@@ -1,11 +1,34 @@
-node_modules
-dist
-.DS_Store
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# Local env
 .env
-.env.local
+.env.*
+!.env.example
 *.local
-coverage
-playwright-report
-test-results
-textures_placeholder\bedrock-samples-main
-/textures_placeholder/bedrock-samples-main
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Coverage / test artifacts
+coverage/
+
+# Agent session artifacts (plans belong in docs/plans, output stays local)
+.kilo/
+agentoutput.txt
+Trajectory ID *.txt
