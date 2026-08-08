@@ -15,13 +15,13 @@ const tools: ToolItem[] = ([
   { id: 'select', label: 'Select', icon: '👆', hotkey: '1', description: 'Click any territory or city marker to inspect & edit' },
   { id: 'pan', label: 'Pan', icon: '✋', hotkey: '2', description: 'Drag to orbit & pan around the 3D globe' },
   { id: 'drawPolygon', label: 'Draw', icon: '✏️', hotkey: '3', description: 'Click points on globe to outline custom land territories' },
-  { id: 'placePoint', label: 'City', icon: '📍', hotkey: '4', description: 'Click anywhere on globe to place a new city pin' },
+  { id: 'placePoint', label: 'Pin', icon: '📍', hotkey: '4', description: 'Place an editable standalone pin anywhere on the globe' },
   { id: 'designAssist', label: 'Design', icon: '✨', hotkey: '5', description: 'Stamp procedurally generated continents & mountain chains' },
   { id: 'freehandDraw', label: 'Freehand', icon: '🖊️', hotkey: '6', description: 'Drag mouse or touch across globe to freehand draw landmasses' },
   { id: 'addPart', label: 'Island', icon: '🏝️', hotkey: '7', description: 'Draw an island with its own editable label — click vertices or drag freehand. Select a landmass first to attach it' },
   { id: 'eraseRegion', label: 'Erase', icon: '✂️', hotkey: '8', description: 'Draw a shape to erase that area from the SELECTED region (cuts holes, trims edges, splits landmasses)' },
   { id: 'walk', label: 'Walk', icon: '🚶', hotkey: '9', description: 'Explore your world in first-person ground mode & build structures' },
-] satisfies ToolItem[]).filter((tool) => tool.id !== 'placePoint').map((tool, index) => ({
+] satisfies ToolItem[]).map((tool, index) => ({
   ...tool,
   hotkey: String(index + 1),
 }));
@@ -46,10 +46,7 @@ export function ToolRail() {
       drawController.cancelDrawing();
     }
     if (id === 'placePoint') {
-      const current = useUiStore.getState().creationEntityType;
-      if (current === 'continent' || current === 'island' || current === 'region') {
-        useUiStore.getState().setCreationEntityType('city');
-      }
+      useUiStore.getState().setCreationEntityType('landmark');
     } else if (id === 'drawPolygon' || id === 'freehandDraw') {
       // Retain active creation type (continent, region, island, city, town, landmark)
     }

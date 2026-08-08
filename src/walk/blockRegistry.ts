@@ -50,6 +50,11 @@ export const BLOCKS: BlockDef[] = [
   { id: 11, name: 'brick',        color: '#b45309',     solid: true,  icon: '🧱', textures: '/textures/blocks/brick.png' },
   { id: 12, name: 'marble',       color: '#e2e8f0',     solid: true,  icon: '🏛️', textures: '/textures/blocks/stonebrick.png' },
   { id: 13, name: 'dark_stone',   color: '#374151',     solid: true,  icon: '🏰', textures: '/textures/blocks/cobblestone.png' },
+  { id: 9,  name: 'obsidian',     color: '#1e1b4b',     solid: true,  icon: '🔮', textures: '/textures/blocks/obsidian.png' },
+  { id: 10, name: 'glass',        color: '#bae6fd',     solid: true,  icon: '🪟', textures: '/textures/blocks/glass.png' },
+  { id: 11, name: 'brick',        color: '#b45309',     solid: true,  icon: '🧱', textures: '/textures/blocks/brick.png' },
+  { id: 12, name: 'marble',       color: '#e2e8f0',     solid: true,  icon: '🏛️', textures: '/textures/blocks/stonebrick.png' },
+  { id: 13, name: 'dark_stone',   color: '#374151',     solid: true,  icon: '🏰', textures: '/textures/blocks/cobblestone.png' },
   { id: 14, name: 'gold_block',   color: '#ca8a04',     solid: true,  icon: '🟡', textures: '/textures/blocks/gold_block.png' },
   { id: 15, name: 'potato',       color: '#d4a017',     solid: true,  icon: '🥔', textures: '/textures/blocks/dirt.png' },
   { id: 16, name: 'lava',         color: '#ef4444',     solid: false, icon: '🔥', textures: '/textures/blocks/lava_still.png', groups: { liquid: 1, lava: 1 } },
@@ -58,6 +63,10 @@ export const BLOCKS: BlockDef[] = [
   { id: 19, name: 'cyber_cyan',   color: '#06b6d4',     solid: true,  icon: '⚡' },
   { id: 20, name: 'cyber_pink',   color: '#ec4899',     solid: true,  icon: '✨' },
   { id: 21, name: 'torch',        color: '#f59e0b',     solid: false, icon: '🕯️', textures: '/textures/blocks/torch_on.png' },
+  { id: 88, name: 'torch_north',  color: '#f59e0b',     solid: false, icon: '🕯️', textures: '/textures/blocks/torch_on.png', placeable: false },
+  { id: 89, name: 'torch_south',  color: '#f59e0b',     solid: false, icon: '🕯️', textures: '/textures/blocks/torch_on.png', placeable: false },
+  { id: 90, name: 'torch_east',   color: '#f59e0b',     solid: false, icon: '🕯️', textures: '/textures/blocks/torch_on.png', placeable: false },
+  { id: 91, name: 'torch_west',   color: '#f59e0b',     solid: false, icon: '🕯️', textures: '/textures/blocks/torch_on.png', placeable: false },
   { id: 22, name: 'thatch_roof', color: '#d97706',     solid: true,  icon: '🌾', textures: '/textures/blocks/planks_oak.png' },
   { id: 24, name: 'door_open',   color: '#92400e',     solid: false, icon: '🚪', textures: '/textures/blocks/door_wood_lower.png', placeable: false },
   { id: 25, name: 'tall_grass', color: '#65a30d', solid: false, icon: '🌿', placeable: false },
@@ -82,6 +91,25 @@ export const BLOCKS: BlockDef[] = [
   { id: 44, name: 'dirt_path', color: '#8b6a3e', solid: true, icon: '🛤️', textures: ['/textures/blocks/grass_path_top.png', '/textures/blocks/dirt.png', '/textures/blocks/grass_path_side.png'] },
   { id: 46, name: 'door_closed_upper', color: '#92400e', solid: true, textures: '/textures/blocks/door_wood_upper.png', placeable: false },
   { id: 47, name: 'door_open_upper', color: '#92400e', solid: false, textures: '/textures/blocks/door_wood_upper.png', placeable: false },
+  { id: 63, name: 'dandelion', color: '#facc15', solid: false, icon: '🌼' },
+  { id: 64, name: 'blue_orchid', color: '#38bdf8', solid: false, icon: '🪻' },
+  { id: 65, name: 'allium', color: '#e879f9', solid: false, icon: '💮' },
+  { id: 66, name: 'mushroom_red', color: '#ef4444', solid: false, icon: '🍄' },
+  { id: 67, name: 'mushroom_brown', color: '#a16207', solid: false, icon: '🍄' },
+  { id: 68, name: 'fern', color: '#15803d', solid: false, icon: '🌿' },
+  { id: 69, name: 'cactus', color: '#166534', solid: true, icon: '🌵', textures: ['/textures/blocks/sandstone_top.png', '/textures/blocks/sandstone_bottom.png', '/textures/blocks/sandstone_normal.png'] },
+  { id: 70, name: 'reeds', color: '#84cc16', solid: false, icon: '🎋' },
+  { id: 71, name: 'dead_bush', color: '#a16207', solid: false, icon: '🌾' },
+  { id: 72, name: 'seagrass', color: '#065f46', solid: false, icon: '🪸' },
+  { id: 73, name: 'sunflower', color: '#eab308', solid: false, icon: '🌻' },
+  { id: 74, name: 'birch_log', color: '#d1d5db', solid: true, icon: '🪵', textures: ['/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak.png'], groups: { choppy: 2, wood: 1 } },
+  { id: 75, name: 'birch_leaves', color: '#84cc16', solid: false, icon: '🍃', textures: '/textures/blocks/azalea_leaves.png', groups: { snappy: 3, leaves: 1 } },
+  { id: 76, name: 'acacia_log', color: '#9a3412', solid: true, icon: '🪵', textures: ['/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak.png'], groups: { choppy: 2, wood: 1 } },
+  { id: 77, name: 'acacia_leaves', color: '#65a30d', solid: false, icon: '🍃', textures: '/textures/blocks/azalea_leaves.png', groups: { snappy: 3, leaves: 1 } },
+  { id: 78, name: 'jungle_log', color: '#571c05', solid: true, icon: '🪵', textures: ['/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak.png'], groups: { choppy: 2, wood: 1 } },
+  { id: 79, name: 'jungle_leaves', color: '#14532d', solid: false, icon: '🌿', textures: '/textures/blocks/azalea_leaves.png', groups: { snappy: 3, leaves: 1 } },
+  { id: 80, name: 'cherry_log', color: '#4a044e', solid: true, icon: '🪵', textures: ['/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak_top.png', '/textures/blocks/log_oak.png'], groups: { choppy: 2, wood: 1 } },
+  { id: 81, name: 'cherry_leaves', color: '#f472b6', solid: false, icon: '🌸', textures: '/textures/blocks/azalea_leaves.png', groups: { snappy: 3, leaves: 1 } },
   ...Array.from({ length: MAX_LIQUID_LEVEL }, (_, index): BlockDef => ({
     id: BLOCK_WATER_FLOWING_START + index,
     name: `water_flowing_${index + 1}`,
@@ -103,6 +131,25 @@ export const BLOCK_BY_ID = new Map<number, BlockDef>(
 export const BLOCK_BY_NAME = new Map<string, BlockDef>(
   BLOCKS.map((b) => [b.name, b]),
 );
+
+export const PLANT_BLOCK_IDS = new Set<number>([
+  25, // tall_grass
+  26, // wildflower / rose
+  63, // dandelion
+  64, // blue_orchid
+  65, // allium
+  66, // mushroom_red
+  67, // mushroom_brown
+  68, // fern
+  70, // reeds
+  71, // dead_bush
+  72, // seagrass
+  73, // sunflower
+]);
+
+export function isPlantBlock(blockId: number): boolean {
+  return PLANT_BLOCK_IDS.has(blockId);
+}
 
 export function getBlockGroup(blockId: number, group: string): number {
   return BLOCK_BY_ID.get(blockId)?.groups?.[group] ?? 0;

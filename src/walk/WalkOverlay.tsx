@@ -6,7 +6,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useWalkStore } from '@/state/walkStore';
 import { useWorldStore } from '@/state/worldStore';
 import { useUiStore } from '@/state/uiStore';
-import { WalkScene } from './WalkScene';
+import type { WalkScene } from './WalkScene';
 import { makeAnchor } from './GeoAnchor';
 import { getViewer } from '@/globe/CesiumViewer';
 import { Math as CesiumMath } from 'cesium';
@@ -15,12 +15,17 @@ import { pickGlobeCenterLonLat } from './GlobeDescentTarget';
 import { createWalkEntryPin, findWalkEntryPin } from './WalkEntryPin';
 import { ensureNpcPopulation, simulateNpcToHour } from '@/npc/NpcPopulation';
 import type { NpcConversationBubble } from './PersistentWalkNpcManager';
-import { cycleHotbarSelection } from './WalkInteraction';
 
-const WALK_HOTBAR_IDS = [1, 2, 3, 4, 5, 11, 10, 23, 21];
-const WALK_HOTBAR_BLOCKS = WALK_HOTBAR_IDS
-  .map((id) => BLOCKS.find((block) => block.id === id))
-  .filter((block): block is NonNullable<typeof block> => Boolean(block));
+function releaseTextEntryFocus(): void {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return;
+  if (active.tagName === 'INPUT'
+    || active.tagName === 'TEXTAREA'
+    || active.tagName === 'SELECT'
+    || active.isContentEditable) {
+    active.blur();
+  }
+}
 
 function walkErrorMessage(cause: unknown, fallback: string): string {
   if (cause instanceof Error) return cause.message || fallback;
@@ -37,6 +42,9 @@ export function WalkOverlay() {
   const [npcCount, setNpcCount] = useState(0);
   const [conversation, setConversation] = useState<NpcConversationBubble | null>(null);
   const [creativeFlying, setCreativeFlying] = useState(false);
+  const creativeInventoryOpen = useUiStore((s) => s.creativeInventoryOpen);
+  const setCreativeInventoryOpen = useUiStore((s) => s.setCreativeInventoryOpen);
+  const [controllerName, setControllerName] = useState<string | null>(null);
   const {
     phase,
     anchor,
@@ -47,9 +55,15 @@ export function WalkOverlay() {
     beginAscent,
     confirmGlobe,
     failTransition,
-    selectedBlockId,
-    setSelectedBlock,
+    hotbarIds,
+    activeHotbarIndex,
+    selectHotbarSlot,
+    assignHotbarSlot,
+    cycleHotbar,
   } = useWalkStore();
+  const hotbarBlocks = hotbarIds
+    .map((id) => BLOCKS.find((block) => block.id === id))
+    .filter((block): block is NonNullable<typeof block> => Boolean(block));
   const { activeWorldId, worlds, patchWorld } = useWorldStore();
   const returnToGlobe = useCallback(() => {
     confirmGlobe();
@@ -113,7 +127,30 @@ export function WalkOverlay() {
   }, []);
 
   useEffect(() => {
+    const refreshController = () => {
+      const connected = Array.from(navigator.getGamepads?.() ?? []).find((gamepad) => gamepad?.connected);
+      setControllerName(connected?.id ?? null);
+    };
+    const handleConnected = (event: GamepadEvent) => setControllerName(event.gamepad.id);
+    const handleDisconnected = () => refreshController();
+    refreshController();
+    window.addEventListener('gamepadconnected', handleConnected);
+    window.addEventListener('gamepaddisconnected', handleDisconnected);
+    return () => {
+      window.removeEventListener('gamepadconnected', handleConnected);
+      window.removeEventListener('gamepaddisconnected', handleDisconnected);
+    };
+  }, []);
+
+  useEffect(() => {
     if (phase !== 'walk') return;
+    const container = containerRef.current;
+    const reclaimWalkFocus = () => {
+      releaseTextEntryFocus();
+      sceneRef.current?.focusControls();
+    };
+    const focusFrame = window.requestAnimationFrame(reclaimWalkFocus);
+    container?.addEventListener('pointerdown', reclaimWalkFocus, { capture: true });
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
         sceneRef.current?.setKeyboardSprinting(true);
@@ -124,6 +161,10 @@ export function WalkOverlay() {
         return;
       }
       if (event.code === 'Escape') {
+        if (creativeInventoryOpen) {
+          setCreativeInventoryOpen(false);
+          return;
+        }
         if (conversation) {
           sceneRef.current?.closeNpcConversation(conversation.npcId);
           setConversation(null);
@@ -136,7 +177,17 @@ export function WalkOverlay() {
         setCreativeFlying(sceneRef.current?.toggleCreativeFlight() ?? false);
         return;
       }
+      if (event.code === 'KeyI' && !event.repeat) {
+        const next = !useUiStore.getState().creativeInventoryOpen;
+        if (next) sceneRef.current?.releasePointerLock();
+        setCreativeInventoryOpen(next);
+        return;
+      }
       if (event.code === 'KeyE' && !event.repeat) {
+        if (conversation) {
+          setConversation(sceneRef.current?.continueNpcConversation(conversation.npcId) ?? null);
+          return;
+        }
         if (sceneRef.current?.toggleTargetedDoor()) {
           setConversation(null);
           return;
@@ -147,8 +198,7 @@ export function WalkOverlay() {
       }
       if (!event.code.startsWith('Digit')) return;
       const slot = Number.parseInt(event.code.slice(5), 10);
-      const block = WALK_HOTBAR_BLOCKS[slot - 1];
-      if (block) setSelectedBlock(block.id);
+      if (slot >= 1 && slot <= hotbarIds.length) selectHotbarSlot(slot - 1);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.code === 'ShiftLeft' || event.code === 'ShiftRight'
@@ -158,63 +208,136 @@ export function WalkOverlay() {
     };
     const handleBlur = () => sceneRef.current?.setKeyboardSprinting(false);
     const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY === 0) return;
+      if (event.deltaY === 0 || creativeInventoryOpen) return;
       event.preventDefault();
-      const current = useWalkStore.getState().selectedBlockId;
-      setSelectedBlock(cycleHotbarSelection(current, WALK_HOTBAR_BLOCKS.map((block) => block.id), event.deltaY));
+      cycleHotbar(event.deltaY);
     };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
+      window.cancelAnimationFrame(focusFrame);
+      container?.removeEventListener('pointerdown', reclaimWalkFocus, { capture: true });
       sceneRef.current?.setKeyboardSprinting(false);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('wheel', handleWheel);
     };
-  }, [phase, beginAscent, setSelectedBlock, conversation]);
+  }, [phase, beginAscent, conversation, creativeInventoryOpen, hotbarIds.length, selectHotbarSlot, cycleHotbar]);
+
+  useEffect(() => {
+    sceneRef.current?.setInventoryOpen(creativeInventoryOpen);
+    if (!creativeInventoryOpen) return;
+    sceneRef.current?.releasePointerLock();
+    let frame = 0;
+    let previous = { up: false, down: false, left: false, right: false, accept: false, cancel: false };
+    let lastMoveAt = 0;
+    const availableBlocks = BLOCKS.filter((b) => b.id !== 0 && b.placeable !== false && !b.name.includes('_flowing_'));
+    let focusIndex = 0;
+
+    const poll = (now: number) => {
+      const gamepad = Array.from(navigator.getGamepads?.() ?? []).find((pad) => pad?.connected) ?? null;
+      if (gamepad) {
+        const pressed = (index: number) => Boolean(gamepad.buttons[index]?.pressed || (gamepad.buttons[index]?.value ?? 0) > 0.5);
+        const current = {
+          up: pressed(12) || (gamepad.axes[1] ?? 0) < -0.65,
+          down: pressed(13) || (gamepad.axes[1] ?? 0) > 0.65,
+          left: pressed(14) || (gamepad.axes[0] ?? 0) < -0.65,
+          right: pressed(15) || (gamepad.axes[0] ?? 0) > 0.65,
+          accept: pressed(0),
+          cancel: pressed(1),
+        };
+        const columns = window.innerWidth >= 768 ? 8 : window.innerWidth >= 640 ? 6 : 4;
+        const moveReady = now - lastMoveAt > 170;
+        let delta = 0;
+        if (current.left && (!previous.left || moveReady)) delta = -1;
+        else if (current.right && (!previous.right || moveReady)) delta = 1;
+        else if (current.up && (!previous.up || moveReady)) delta = -columns;
+        else if (current.down && (!previous.down || moveReady)) delta = columns;
+        if (delta !== 0) {
+          focusIndex = Math.max(0, Math.min(availableBlocks.length - 1, focusIndex + delta));
+          lastMoveAt = now;
+        }
+        if (current.accept && !previous.accept) {
+          const block = availableBlocks[focusIndex];
+          if (block) {
+            assignHotbarSlot(useWalkStore.getState().activeHotbarIndex, block.id);
+            setCreativeInventoryOpen(false);
+          }
+        }
+        if (current.cancel && !previous.cancel) setCreativeInventoryOpen(false);
+        previous = current;
+      }
+      frame = window.requestAnimationFrame(poll);
+    };
+    frame = window.requestAnimationFrame(poll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [creativeInventoryOpen, assignHotbarSlot, setCreativeInventoryOpen]);
+
+  useEffect(() => {
+    if (!conversation) return;
+    // Dialogue is a cursor-driven UI on desktop. NOA otherwise keeps the
+    // pointer captured after the interaction key/right click, making the
+    // response buttons impossible to select.
+    sceneRef.current?.releasePointerLock();
+  }, [conversation]);
 
   useEffect(() => {
     if (phase !== 'descending' || !anchor || sceneRef.current || !containerRef.current) return;
 
-    const worldId = activeWorldId;
-    const world = worldId ? worlds[worldId] : null;
-
-    try {
-      const now = Date.now();
-      const generatedNpcs = ensureNpcPopulation(world?.npcs, world?.entities ?? {}, world?.seed ?? 0, now);
-      const simulatedNpcs = Object.fromEntries(Object.entries(generatedNpcs).map(([id, npc]) => [
-        id,
-        simulateNpcToHour(npc, useUiStore.getState().timeOfDay, now),
-      ]));
-      sceneRef.current = WalkScene.create({
-        anchor,
-        container: containerRef.current,
-        savedChunks: entryChunks,
-        savedAnchor: world?.walkAnchor,
-        entities: world?.entities,
-        npcs: simulatedNpcs,
-        mobs: world?.mobs,
-        seed: world?.seed,
-        onNpcConversation: setConversation,
-      });
-      setNpcCount(sceneRef.current.getNpcCount());
-      if (worldId && !findWalkEntryPin(world?.entities ?? {}, anchor)) {
-        patchWorld(worldId, (draft) => {
-          if (findWalkEntryPin(draft.entities, anchor)) return;
-          const pin = createWalkEntryPin(draft.entities, anchor);
-          draft.entities[pin.id] = pin;
+    let cancelled = false;
+    const startWalkScene = async () => {
+      try {
+        // Keep NOA and Babylon out of the initial globe bundle. The descent UI
+        // naturally covers this one-time module load on the first walk entry.
+        const { WalkScene: WalkSceneRuntime } = await import('./WalkScene');
+        if (cancelled || sceneRef.current || !containerRef.current) return;
+        const worldId = activeWorldId;
+        const world = worldId ? worlds[worldId] : null;
+        const now = Date.now();
+        const generatedNpcs = ensureNpcPopulation(world?.npcs, world?.entities ?? {}, world?.seed ?? 0, now);
+        const simulatedNpcs = Object.fromEntries(Object.entries(generatedNpcs).map(([id, npc]) => [
+          id,
+          simulateNpcToHour(npc, useUiStore.getState().timeOfDay, now),
+        ]));
+        sceneRef.current = WalkSceneRuntime.create({
+          anchor,
+          container: containerRef.current,
+          savedChunks: entryChunks,
+          savedAnchor: world?.walkAnchor,
+          entities: world?.entities,
+          npcs: simulatedNpcs,
+          mobs: world?.mobs,
+          seed: world?.seed,
+          onNpcConversation: setConversation,
+          onCreativeFlightChanged: setCreativeFlying,
+          onInventoryToggle: () => {
+            const next = !useUiStore.getState().creativeInventoryOpen;
+            if (next) sceneRef.current?.releasePointerLock();
+            setCreativeInventoryOpen(next);
+          },
         });
+        setNpcCount(sceneRef.current.getNpcCount());
+        if (worldId && !findWalkEntryPin(world?.entities ?? {}, anchor)) {
+          patchWorld(worldId, (draft) => {
+            if (findWalkEntryPin(draft.entities, anchor)) return;
+            const pin = createWalkEntryPin(draft.entities, anchor);
+            draft.entities[pin.id] = pin;
+          });
+        }
+        if (worldId) patchWorld(worldId, (draft) => { draft.npcs = simulatedNpcs; });
+        confirmWalk();
+      } catch (cause) {
+        if (cancelled) return;
+        console.error('[WalkOverlay] Unable to start walk mode:', cause);
+        const message = walkErrorMessage(cause, 'Unable to start walk mode.');
+        failTransition(message);
       }
-      if (worldId) patchWorld(worldId, (draft) => { draft.npcs = simulatedNpcs; });
-      confirmWalk();
-    } catch (cause) {
-      console.error('[WalkOverlay] Unable to start walk mode:', cause);
-      const message = walkErrorMessage(cause, 'Unable to start walk mode.');
-      failTransition(message);
-    }
+    };
+    void startWalkScene();
+    return () => { cancelled = true; };
   }, [phase, anchor, entryChunks, activeWorldId, worlds, patchWorld, confirmWalk, failTransition]);
 
   useEffect(() => {
@@ -274,17 +397,30 @@ export function WalkOverlay() {
       />
       {phase === 'walk' && (
         <>
-          {npcCount > 0 && (
-            <div className="pointer-events-none fixed left-4 top-4 z-50 rounded-lg border border-white/15 bg-slate-950/75 px-3 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur-sm">
-              Citizens nearby: {npcCount}
+          <div className="pointer-events-none fixed left-4 top-4 z-50 rounded-lg border border-white/15 bg-slate-950/75 px-3 py-1.5 text-xs font-semibold text-slate-200 backdrop-blur-sm">
+            Citizens loaded: {npcCount}
+          </div>
+          {controllerName && (
+            <div className="pointer-events-none fixed right-4 top-4 z-50 max-w-[18rem] rounded-lg border border-violet-300/25 bg-slate-950/80 px-3 py-2 text-[11px] leading-relaxed text-slate-300 backdrop-blur-sm">
+              <div className="font-semibold text-violet-200">Controller connected</div>
+              <div className="truncate text-[10px] text-slate-500">{controllerName}</div>
+              <div>LS move · RS look · A jump · L3 toggle sprint</div>
+              <div>RT break · LT use/place · LB/RB hotbar · D-pad ↑ fly</div>
+              <div>Y inventory · D-pad navigate · A equip · B close</div>
             </div>
           )}
           {conversation && (
-            <div className="fixed bottom-24 left-1/2 z-[70] w-[min(92vw,32rem)] -translate-x-1/2 rounded-xl border border-amber-300/30 bg-slate-950/95 p-4 text-slate-100 shadow-2xl backdrop-blur-md">
+            <div
+              className="fixed bottom-24 left-1/2 z-[70] w-[min(92vw,32rem)] -translate-x-1/2 rounded-xl border border-amber-300/30 bg-slate-950/95 p-4 text-slate-100 shadow-2xl backdrop-blur-md"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-bold text-amber-200">{conversation.npcName}</div>
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400">{conversation.occupation}</div>
+                  <div className="text-[11px] uppercase tracking-wider text-slate-400">
+                    {conversation.occupation} · {conversation.activity.replace('-', ' ')} · rapport {conversation.relationship}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -298,15 +434,21 @@ export function WalkOverlay() {
                 </button>
               </div>
               <p className="mt-3 text-sm leading-relaxed text-slate-200">{conversation.text}</p>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-[10px] text-slate-500">Press E or continue to advance · Esc closes</div>
-                <button type="button" onClick={() => {
-                  const next = sceneRef.current?.interactWithNearestNpc();
-                  if (next) setConversation(next);
-                }} className="rounded-lg bg-amber-400/20 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-400/30">
-                  Continue
-                </button>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {conversation.choices.map((choice) => (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    onClick={() => {
+                      setConversation(sceneRef.current?.respondToNpc(conversation.npcId, choice.id) ?? null);
+                    }}
+                    className="min-h-11 rounded-lg border border-amber-300/15 bg-amber-400/10 px-3 py-2 text-left text-xs font-semibold text-amber-100 hover:bg-amber-400/20"
+                  >
+                    {choice.label}
+                  </button>
+                ))}
               </div>
+              <div className="mt-2 text-[10px] text-slate-500">E advances their story · Esc closes</div>
             </div>
           )}
           <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center text-2xl font-bold text-white drop-shadow-lg">
@@ -314,14 +456,14 @@ export function WalkOverlay() {
           </div>
           <div className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-end gap-2">
             <div className="flex gap-1 rounded-xl border border-white/20 bg-slate-950/85 p-1.5 shadow-xl backdrop-blur-sm">
-              {WALK_HOTBAR_BLOCKS.map((block, index) => (
+              {hotbarBlocks.map((block, index) => (
                 <button
-                  key={block.id}
+                  key={`${index}-${block.id}`}
                   type="button"
-                  onClick={() => setSelectedBlock(block.id)}
+                  onClick={() => selectHotbarSlot(index)}
                   aria-label={`Select ${block.name} block`}
                   className={`relative grid h-11 w-11 place-items-center rounded-lg border text-lg ${
-                    selectedBlockId === block.id
+                    activeHotbarIndex === index
                       ? 'border-sky-300 bg-sky-500/35'
                       : 'border-white/10 bg-white/5 hover:bg-white/15'
                   }`}
@@ -331,6 +473,17 @@ export function WalkOverlay() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                sceneRef.current?.releasePointerLock();
+                setCreativeInventoryOpen(true);
+              }}
+              className="rounded-full bg-slate-900/80 px-3 py-2 text-sm font-semibold text-sky-200 shadow-lg backdrop-blur-sm hover:bg-slate-800"
+              title="Creative inventory (I)"
+            >
+              🎒 Inventory
+            </button>
             <button
               type="button"
               onClick={() => setCreativeFlying(sceneRef.current?.toggleCreativeFlight() ?? false)}

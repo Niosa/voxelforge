@@ -1,43 +1,25 @@
-import { useUiStore, type FirstPersonBuildingType } from '@/state/uiStore';
+import { useUiStore } from '@/state/uiStore';
+import { useWalkStore } from '@/state/walkStore';
+import { BLOCK_BY_ID } from '@/walk/blockRegistry';
 import { firstPersonController } from '@/globe/FirstPersonController';
 import { firstPersonBuilder } from '@/drawing/FirstPersonBuilder';
 import { soundEngine } from '@/audio/soundEngine';
 
-interface HotbarItem {
-  id: FirstPersonBuildingType;
-  slot: number;
-  label: string;
-  icon: string;
-  color: string;
-}
-
-const HOTBAR_ITEMS: HotbarItem[] = [
-  { id: 'house', slot: 1, label: 'Oak Wood', icon: '🪵', color: '#0d9488' },
-  { id: 'castle', slot: 2, label: 'Stone Brick', icon: '🧱', color: '#f59e0b' },
-  { id: 'watchtower', slot: 3, label: 'Cobblestone', icon: '🪨', color: '#ea580c' },
-  { id: 'gate', slot: 4, label: 'Gold Arch', icon: '🚪', color: '#eab308' },
-  { id: 'wall', slot: 5, label: 'Chiseled Stone', icon: '🏰', color: '#475569' },
-  { id: 'road', slot: 6, label: 'Cobble Slab', icon: '🛣️', color: '#94a3b8' },
-  { id: 'flagpole', slot: 7, label: 'Banner Post', icon: '🚩', color: '#ef4444' },
-  { id: 'tree', slot: 8, label: 'Oak Leaves', icon: '🌿', color: '#16a34a' },
-];
-
 export function MinecraftHotbar() {
   const firstPersonActive = useUiStore((s) => s.firstPersonActive);
-  const selectedType = useUiStore((s) => s.firstPersonBuildingType);
-  const setSelectedType = useUiStore((s) => s.setFirstPersonBuildingType);
   const setCreativeInventoryOpen = useUiStore((s) => s.setCreativeInventoryOpen);
   const activeRelics = useUiStore((s) => s.activeRelicCount);
 
+  const {
+    hotbarIds,
+    activeHotbarIndex,
+    selectHotbarSlot,
+    selectedBlockId,
+  } = useWalkStore();
+
   if (!firstPersonActive) return null;
 
-  const activeItem = HOTBAR_ITEMS.find((i) => i.id === selectedType) || {
-    id: selectedType,
-    slot: 'E',
-    label: selectedType,
-    icon: '🧰',
-    color: '#0284c7',
-  };
+  const activeBlock = BLOCK_BY_ID.get(selectedBlockId);
   const pos = firstPersonController.getCurrentPosition();
 
   // Get cardinal direction facing
@@ -69,7 +51,7 @@ export function MinecraftHotbar() {
         </div>
         <div className="text-slate-300">Facing: {facing}</div>
         <div className="text-emerald-300 font-semibold mt-0.5">
-          Selected: [{activeItem.slot}] {activeItem.label}
+          Selected: Slot [{activeHotbarIndex + 1}] {activeBlock?.name.replaceAll('_', ' ') ?? 'Block'} (ID {selectedBlockId})
         </div>
         {activeRelics > 0 && (
           <div className="text-amber-400 font-bold mt-0.5 animate-pulse">
@@ -77,7 +59,7 @@ export function MinecraftHotbar() {
           </div>
         )}
         <div className="text-slate-400 text-[10px] mt-1">
-          Controls: [WASD] Move · [Mouse] Look · [R-Click / E] Place · [Scroll / 1-8] Slots · [E] Creative Inventory
+          Controls: [WASD] Move · [Mouse] Look · [R-Click / E] Place · [Scroll / 1-9] Slots · [I] Creative Inventory
         </div>
       </div>
 
@@ -125,17 +107,18 @@ export function MinecraftHotbar() {
           </div>
         </div>
 
-        {/* 9-Slot Minecraft Style Hotbar */}
+        {/* 9-Slot Hotbar synced with walkStore */}
         <div className="relative flex items-center gap-1 rounded-xl border-4 border-slate-700 bg-slate-950/90 p-1.5 shadow-2xl backdrop-blur-md">
-          {HOTBAR_ITEMS.map((item) => {
-            const isSelected = item.id === selectedType;
+          {hotbarIds.map((blockId, index) => {
+            const block = BLOCK_BY_ID.get(blockId);
+            const isSelected = activeHotbarIndex === index;
             return (
               <button
-                key={item.id}
+                key={`hotbar-item-${index}-${blockId}`}
                 type="button"
                 onClick={() => {
                   soundEngine.playClick();
-                  setSelectedType(item.id);
+                  selectHotbarSlot(index);
                   firstPersonBuilder.updatePreview();
                 }}
                 className={`relative flex h-14 w-14 flex-col items-center justify-center rounded-lg border-2 transition-transform duration-100 cursor-pointer ${
@@ -149,13 +132,13 @@ export function MinecraftHotbar() {
                     isSelected ? 'text-amber-300' : 'text-slate-400'
                   }`}
                 >
-                  {item.slot}
+                  {index + 1}
                 </span>
 
-                <span className="text-2xl mt-1 leading-none">{item.icon}</span>
+                <span className="text-2xl mt-1 leading-none">{block?.icon ?? '🧊'}</span>
 
-                <span className="mt-0.5 text-[9px] font-mono font-bold tracking-tight text-slate-200 truncate max-w-[50px]">
-                  {item.label}
+                <span className="mt-0.5 text-[9px] font-mono font-bold tracking-tight text-slate-200 truncate max-w-[50px] capitalize">
+                  {block?.name.replaceAll('_', ' ') ?? 'Empty'}
                 </span>
 
                 {isSelected && (
@@ -172,7 +155,7 @@ export function MinecraftHotbar() {
               soundEngine.playClick();
               setCreativeInventoryOpen(true);
             }}
-            title="Open Creative Voxel Palette & Blueprints [Key E]"
+            title="Open Creative Voxel Palette & Blueprints [Key I]"
             className="flex h-14 w-14 flex-col items-center justify-center rounded-lg border-2 border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/30 transition text-amber-300 font-mono text-[10px] font-bold cursor-pointer"
           >
             <span className="text-xl">🧰</span>

@@ -27,6 +27,7 @@ import { syncEntitiesToCesium } from '@/globe/entitySync';
 import { resolvePickedWorldEntityId } from '@/globe/entityPicking';
 import type { EntityType } from '@/entities/types';
 import { buildCreationProperties } from '@/drawing/creationProperties';
+import { createAntimeridianSafePolygon, unwrapLongitudePoints } from '@/geo/antimeridian';
 
 export { estimateSettlementPopulation } from '@/drawing/creationProperties';
 
@@ -48,23 +49,24 @@ function getDefaultNameForType(type: EntityType, count: number): string {
 }
 
 export function simplifyRingPoints(points: [number, number][], minDistanceDeg?: number): [number, number][] {
-  if (points.length <= 4) return points;
-  const lons = points.map((point) => point[0]);
-  const lats = points.map((point) => point[1]);
+  const continuousPoints = unwrapLongitudePoints(points);
+  if (continuousPoints.length <= 4) return continuousPoints;
+  const lons = continuousPoints.map((point) => point[0]);
+  const lats = continuousPoints.map((point) => point[1]);
   const drawingSpan = Math.hypot(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats));
   const threshold = minDistanceDeg ?? Math.max(0.00001, Math.min(0.0003, drawingSpan / 30));
-  const result: [number, number][] = [points[0]!];
-  let last = points[0]!;
+  const result: [number, number][] = [continuousPoints[0]!];
+  let last = continuousPoints[0]!;
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const pt = points[i]!;
+  for (let i = 1; i < continuousPoints.length - 1; i++) {
+    const pt = continuousPoints[i]!;
     const dist = Math.hypot(pt[0] - last[0], pt[1] - last[1]);
     if (dist >= threshold) {
       result.push(pt);
       last = pt;
     }
   }
-  result.push(points[points.length - 1]!);
+  result.push(continuousPoints[continuousPoints.length - 1]!);
   return result;
 }
 
@@ -83,6 +85,7 @@ export class DrawController {
   private activeCanvas: HTMLCanvasElement | null = null;
   private boundPointerDown: ((e: PointerEvent) => void) | null = null;
   private boundPointerUp: ((e: PointerEvent) => void) | null = null;
+  private boundPointerCancel: ((e: PointerEvent) => void) | null = null;
 
   init(): void {
     const viewer = getViewer();
@@ -96,6 +99,10 @@ export class DrawController {
       try {
         this.activeCanvas.removeEventListener('pointerdown', this.boundPointerDown);
         this.activeCanvas.removeEventListener('pointerup', this.boundPointerUp);
+        if (this.boundPointerCancel) {
+          this.activeCanvas.removeEventListener('pointercancel', this.boundPointerCancel);
+          this.activeCanvas.removeEventListener('lostpointercapture', this.boundPointerCancel);
+        }
       } catch (_) { /* ignore */ }
     }
 
@@ -177,6 +184,11 @@ export class DrawController {
     this.handler.setInputAction((movement: { endPosition: Cartesian2 }) => {
       const mode = useUiStore.getState().tool;
 
+      // Globe navigation produces a high-frequency move stream. Avoid an
+      // expensive terrain pick unless a drawing stroke is actually active.
+      if (!this.isFreehandDrawing && !(this.freehandCandidate && mode === 'addPart')) return;
+      if (mode !== 'freehandDraw' && mode !== 'addPart') return;
+
       const pos = this.pickGlobePosition(movement.endPosition);
       if (!pos) return;
       const [lon, lat] = pos;
@@ -198,7 +210,6 @@ export class DrawController {
       }
 
       if (!this.isFreehandDrawing) return;
-      if (mode !== 'freehandDraw' && mode !== 'addPart') return;
 
       if (this.lastFreehandScreenPoint) {
         const screenDistance = Math.hypot(
@@ -245,14 +256,22 @@ export class DrawController {
     }, ScreenSpaceEventType.LEFT_UP);
 
     // 5. Native Touch & Pointer Event Direct Fallback Listener on Canvas
-    let nativeDownPos: { x: number; y: number; time: number } | null = null;
+    let nativeDownPos: { x: number; y: number; time: number; pointerId: number } | null = null;
+    const activePointers = new Set<number>();
 
     this.boundPointerDown = (e: PointerEvent) => {
-      nativeDownPos = { x: e.clientX, y: e.clientY, time: Date.now() };
+      activePointers.add(e.pointerId);
+      if (activePointers.size > 1) {
+        nativeDownPos = null;
+        this.interruptDrawingGesture();
+        return;
+      }
+      nativeDownPos = { x: e.clientX, y: e.clientY, time: Date.now(), pointerId: e.pointerId };
     };
 
     this.boundPointerUp = (e: PointerEvent) => {
-      if (!nativeDownPos) return;
+      activePointers.delete(e.pointerId);
+      if (!nativeDownPos || nativeDownPos.pointerId !== e.pointerId) return;
       const down = nativeDownPos;
       nativeDownPos = null;
 
@@ -271,8 +290,16 @@ export class DrawController {
       }
     };
 
+    this.boundPointerCancel = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId);
+      nativeDownPos = null;
+      this.interruptDrawingGesture();
+    };
+
     canvas.addEventListener('pointerdown', this.boundPointerDown, { passive: true });
     canvas.addEventListener('pointerup', this.boundPointerUp, { passive: true });
+    canvas.addEventListener('pointercancel', this.boundPointerCancel, { passive: true });
+    canvas.addEventListener('lostpointercapture', this.boundPointerCancel, { passive: true });
 
     // 6. DOUBLE_CLICK: Finish polygon
     this.handler.setInputAction(() => {
@@ -311,9 +338,33 @@ export class DrawController {
       this.handler.destroy();
       this.handler = null;
     }
+    if (this.activeCanvas) {
+      if (this.boundPointerDown) this.activeCanvas.removeEventListener('pointerdown', this.boundPointerDown);
+      if (this.boundPointerUp) this.activeCanvas.removeEventListener('pointerup', this.boundPointerUp);
+      if (this.boundPointerCancel) {
+        this.activeCanvas.removeEventListener('pointercancel', this.boundPointerCancel);
+        this.activeCanvas.removeEventListener('lostpointercapture', this.boundPointerCancel);
+      }
+    }
+    this.activeCanvas = null;
     this.clearPreview();
     this.active = false;
     this.isFreehandDrawing = false;
+  }
+
+  private interruptDrawingGesture(): void {
+    const viewer = getViewer();
+    if (viewer && !viewer.isDestroyed()) {
+      viewer.scene.screenSpaceCameraController.enableRotate = true;
+      viewer.scene.screenSpaceCameraController.enableTranslate = true;
+      viewer.scene.requestRender();
+    }
+    if (!this.isFreehandDrawing && !this.freehandCandidate) return;
+    this.isFreehandDrawing = false;
+    this.freehandCandidate = false;
+    this.freehandStartPoint = null;
+    this.lastPointerDownPos = null;
+    this.clearPreview();
   }
 
   getPointsCount(): number {
@@ -373,7 +424,7 @@ export class DrawController {
     // their tool so the user can keep drawing in one session.
     if (activeMode === 'addPart' || activeMode === 'eraseRegion') {
       if (activeMode === 'addPart') {
-        this.finishIsland(ring);
+        this.finishIsland(createAntimeridianSafePolygon(ring));
       } else {
         this.applyEraseToSelectedEntity(ring);
       }
@@ -383,10 +434,7 @@ export class DrawController {
       return;
     }
 
-    const rawGeometry: TerraGeometry = {
-      type: 'Polygon',
-      coordinates: [ring],
-    };
+    const rawGeometry: TerraGeometry = createAntimeridianSafePolygon(ring);
 
     const uiState = useUiStore.getState();
     const type = uiState.creationEntityType || 'continent';
@@ -481,7 +529,7 @@ export class DrawController {
    * previously drawn island chains the next one as a sibling of the same parent.
    * The tool stays active so a whole archipelago can be drawn in one session.
    */
-  private finishIsland(ring: [number, number][]): void {
+  private finishIsland(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): void {
     const worldState = useWorldStore.getState();
     const entities = worldState.world.entities;
     const selected = worldState.selectedId ? entities[worldState.selectedId] : undefined;
@@ -502,7 +550,7 @@ export class DrawController {
       description: parent ? `An island of ${parent.name}.` : 'A custom drawn island landmass.',
       color: parent ? parent.color : getDefaultColorForType('island'),
       fillOpacity: parent ? parent.fillOpacity : 0.5,
-      geometry: { type: 'Polygon', coordinates: [ring] },
+      geometry,
       parentId: parent ? parent.id : null,
     });
 

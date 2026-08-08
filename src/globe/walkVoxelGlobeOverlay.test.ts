@@ -8,6 +8,7 @@ import {
   globeBlockTextureFaces,
   exposedSurfaceBaseY,
   effectiveGeneratedVoxelManifest,
+  generatedVoxelChunkFootprints,
   visibleGeneratedChunkColumns,
 } from './walkVoxelGlobeOverlay';
 
@@ -35,6 +36,26 @@ describe('collectPlacedWalkBlocks', () => {
     expect(visibleGeneratedChunkColumns(manifest, 0, 0, 65_000)).toEqual([]);
   });
 
+  it('does not truncate a generated site to the old nine-chunk ceiling', () => {
+    const manifest = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
+      `planet/${index % 5},0,${Math.floor(index / 5)}`,
+      1,
+    ]));
+    expect(visibleGeneratedChunkColumns(manifest, 0, 0, 500)).toHaveLength(20);
+    expect(visibleGeneratedChunkColumns(manifest, 0, 0, 500, 16)).toHaveLength(16);
+  });
+
+  it('creates one imagery-mask footprint per generated chunk column', () => {
+    const footprints = generatedVoxelChunkFootprints({
+      'planet/0,0,0': 1,
+      'planet/0,1,0': 1,
+      'planet/1,0,0': 1,
+    });
+    expect(footprints).toHaveLength(2);
+    expect(footprints[0]!.east).toBeCloseTo(footprints[1]!.west, 10);
+    expect(footprints.every((footprint) => footprint.east > footprint.west && footprint.north > footprint.south)).toBe(true);
+  });
+
   it('recovers legacy generated sites from walk pins', () => {
     const pin: TerraEntity = {
       id: 'walk-site',
@@ -60,6 +81,7 @@ describe('collectPlacedWalkBlocks', () => {
     expect(boxes.length).toBeGreaterThan(0);
     expect(boxes.length).toBeLessThan(1_024);
     expect(boxes.some((box) => box.width > 1)).toBe(true);
+    expect(boxes.some((box) => box.depth > 1)).toBe(true);
   });
 
   it('shows placed overrides but not saved air from broken terrain', () => {

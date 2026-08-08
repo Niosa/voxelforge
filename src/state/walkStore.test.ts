@@ -10,6 +10,8 @@ describe('walkStore lifecycle', () => {
       phase: 'globe',
       anchor: null,
       selectedBlockId: 3,
+      hotbarIds: [1, 2, 3, 4, 5, 11, 10, 23, 21],
+      activeHotbarIndex: 2,
       entryChunks: {},
       error: null,
     });
@@ -58,5 +60,33 @@ describe('walkStore lifecycle', () => {
 
     actions.confirmGlobe();
     expect(useWalkStore.getState()).toMatchObject({ phase: 'globe', error: null, anchor: null });
+  });
+
+  it('selects, cycles, and replaces creative hotbar slots', () => {
+    const actions = useWalkStore.getState();
+    actions.selectHotbarSlot(0);
+    expect(useWalkStore.getState()).toMatchObject({ activeHotbarIndex: 0, selectedBlockId: 1 });
+    actions.cycleHotbar(-1);
+    expect(useWalkStore.getState()).toMatchObject({ activeHotbarIndex: 8, selectedBlockId: 21 });
+    actions.assignHotbarSlot(8, 37);
+    expect(useWalkStore.getState()).toMatchObject({ activeHotbarIndex: 8, selectedBlockId: 37 });
+  });
+
+  it('swaps hotbar slots, resets hotbar, and quick-assigns blocks', () => {
+    const actions = useWalkStore.getState();
+    actions.selectHotbarSlot(0); // active 0, blockId 1
+    actions.swapHotbarSlots(0, 1); // swaps slot 0 (1) and slot 1 (2); active index becomes 1
+    expect(useWalkStore.getState().hotbarIds[0]).toBe(2);
+    expect(useWalkStore.getState().hotbarIds[1]).toBe(1);
+    expect(useWalkStore.getState().activeHotbarIndex).toBe(1);
+    expect(useWalkStore.getState().selectedBlockId).toBe(1);
+
+    actions.quickAssignBlock(14); // gold_block
+    expect(useWalkStore.getState().hotbarIds[1]).toBe(14);
+    expect(useWalkStore.getState().selectedBlockId).toBe(14);
+
+    actions.resetHotbarToDefault();
+    expect(useWalkStore.getState().hotbarIds).toEqual([1, 2, 3, 4, 5, 11, 10, 23, 21]);
+    expect(useWalkStore.getState().activeHotbarIndex).toBe(0);
   });
 });

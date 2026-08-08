@@ -66,3 +66,5 @@ npm run build
 - [ ] Biome-aware terrain generation (sample ProceduralFantasyImageryProvider at anchor)
 - [ ] noa pointer-lock UX (crosshair HUD, ESC to release)
 - [ ] Block break/place raycast from camera
+> Current coding-agent handover: [`docs/AGENT_HANDOVER.md`](docs/AGENT_HANDOVER.md).
+> This older overview is retained for historical context.

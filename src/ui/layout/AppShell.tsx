@@ -164,7 +164,7 @@ export function AppShell() {
                 { id: 'city', label: '🏙️ City' },
                 { id: 'town', label: '🏡 Town' },
                 { id: 'landmark', label: '🚩 Landmark' },
-              ].map((t) => {
+              ].filter((t) => tool !== 'placePoint' || t.id === 'city' || t.id === 'town' || t.id === 'landmark').map((t) => {
                 const isSelected = creationEntityType === t.id;
                 return (
                   <button

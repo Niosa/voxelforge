@@ -4,7 +4,7 @@
 > agent picking up this repo understands what was done, why, where the tuning knobs
 > live, and what must not be broken. Read this together with `HANDOVER.md`
 > (architecture) and `CHECKLIST.md` (feature tasks).
-> Last updated: 2026-07-23 (iPad crash-fix effort, validated on device).
+> Last updated: 2026-08-05 (runtime smoothness pass; build/tests validated, device re-check pending).
 
 ---
 
@@ -150,3 +150,23 @@ Selection picking/stacking overhaul (completed before the perf work):
 - [x] Desktop regression: perf mode OFF leaves visuals/behaviors unchanged.
 - [ ] Chrome DevTools heap profiling over 3 min pan/zoom (recommended if memory work resumes).
 - [ ] Re-validate softened knobs (SSE 4, 128 px) on device over a longer session.
+
+---
+
+## 8. Runtime Smoothness Pass (2026-08-05)
+
+- `WalkScene` now runs NPC, mob, and traffic logic at a bounded 13 Hz normally
+  and about 7 Hz in Performance Mode; player physics, input, and camera bobbing
+  remain on NOA's normal tick.
+- `PlanetTerrainSampler` precomputes polygon bounds and point footprints, avoiding
+  full polygon math, temporary arrays, and sorting for every generated column.
+- Legacy voxel edits are indexed by chunk once instead of rescanned for every
+  `worldDataNeeded` request.
+- Performance Mode renders at most four generated voxel columns / 5,000 boxes on
+  the globe, and asynchronous Cesium primitives share one render-readiness pump.
+- Mobile joystick movement updates its transform directly without React renders;
+  touch look remains immediate to avoid adding a frame of camera latency.
+- Selecting a globe entity no longer tears down and rebuilds fantasy imagery.
+- `WalkScene` is dynamically imported during descent. The initial application
+  bundle fell from about **1,862 kB to 577 kB** uncompressed; the 1,284 kB walk
+  engine chunk loads only when walk mode is first entered.

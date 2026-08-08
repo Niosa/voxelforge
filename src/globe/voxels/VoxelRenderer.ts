@@ -3,8 +3,6 @@ import {
   Primitive,
   GeometryInstance,
   MaterialAppearance,
-  ColorGeometryInstanceAttribute,
-  Color,
   Cartesian3,
   Matrix4,
 } from 'cesium';
@@ -58,10 +56,6 @@ export class VoxelRenderer {
       const instance = new GeometryInstance({
         geometry: geometry,
         modelMatrix: modelMatrix,
-        // Optional: color attribute if we want to tint blocks
-        attributes: {
-          color: ColorGeometryInstanceAttribute.fromColor(Color.WHITE),
-        },
       });
 
       const appearance = new MaterialAppearance({

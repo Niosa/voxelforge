@@ -21,7 +21,6 @@ import {
   GeometryAttribute,
   GeometryAttributes,
   GeometryInstance,
-  GeometryPipeline,
   ComponentDatatype,
   PrimitiveType,
   BoundingSphere,
@@ -617,6 +616,7 @@ function createReliefPrimitive(
   if (mesh.vertices.length === 0 || mesh.indices.length === 0) return null;
 
   const positions = new Float64Array(mesh.vertices.length * 3);
+  const normals = new Float32Array(mesh.vertices.length * 3);
   const textureCoordinates = new Float32Array(mesh.vertices.length * 2);
   const cartesianPositions: Cartesian3[] = [];
   for (let index = 0; index < mesh.vertices.length; index++) {
@@ -626,6 +626,12 @@ function createReliefPrimitive(
     positions[index * 3] = position.x;
     positions[index * 3 + 1] = position.y;
     positions[index * 3 + 2] = position.z;
+
+    const normal = Cartesian3.normalize(position, new Cartesian3());
+    normals[index * 3] = normal.x;
+    normals[index * 3 + 1] = normal.y;
+    normals[index * 3 + 2] = normal.z;
+
     textureCoordinates[index * 2] = vertex.u;
     textureCoordinates[index * 2 + 1] = vertex.v;
   }
@@ -636,18 +642,22 @@ function createReliefPrimitive(
     componentsPerAttribute: 3,
     values: positions,
   });
+  attributes.normal = new GeometryAttribute({
+    componentDatatype: ComponentDatatype.FLOAT,
+    componentsPerAttribute: 3,
+    values: normals,
+  });
   attributes.st = new GeometryAttribute({
     componentDatatype: ComponentDatatype.FLOAT,
     componentsPerAttribute: 2,
     values: textureCoordinates,
   });
-  let geometry = new Geometry({
+  const geometry = new Geometry({
     attributes,
     indices: new Uint32Array(mesh.indices),
     primitiveType: PrimitiveType.TRIANGLES,
     boundingSphere: BoundingSphere.fromPoints(cartesianPositions),
   });
-  geometry = GeometryPipeline.computeNormal(geometry);
 
   const texture = getBiomeTextureDataUrl({
     biome,

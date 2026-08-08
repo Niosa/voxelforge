@@ -3,12 +3,165 @@
  * Generates retro/fantasy sound effects and ambient soundscapes offline.
  */
 
+/** Only referenced samples are fingerprinted into the production build. */
+const SAMPLE_LIBRARY = {
+  grass: [
+    new URL('../../resources/sfx/step/grass1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/grass2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/grass3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/grass4.ogg', import.meta.url).href,
+  ],
+  stone: [
+    new URL('../../resources/sfx/step/stone1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/stone2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/stone3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/stone4.ogg', import.meta.url).href,
+  ],
+  wood: [
+    new URL('../../resources/sfx/step/wood1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/wood2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/wood3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/wood4.ogg', import.meta.url).href,
+  ],
+  gravel: [
+    new URL('../../resources/sfx/step/gravel1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/gravel2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/gravel3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/gravel4.ogg', import.meta.url).href,
+  ],
+  sand: [
+    new URL('../../resources/sfx/step/sand1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/sand2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/sand3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/sand4.ogg', import.meta.url).href,
+  ],
+  snow: [
+    new URL('../../resources/sfx/step/snow1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/snow2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/snow3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/snow4.ogg', import.meta.url).href,
+  ],
+  cloth: [
+    new URL('../../resources/sfx/step/cloth1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/cloth2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/cloth3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/step/cloth4.ogg', import.meta.url).href,
+  ],
+  digGrass: [
+    new URL('../../resources/sfx/dig/grass1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/grass2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/grass3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/grass4.ogg', import.meta.url).href,
+  ],
+  digStone: [
+    new URL('../../resources/sfx/dig/stone1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/stone2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/stone3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/stone4.ogg', import.meta.url).href,
+  ],
+  digWood: [
+    new URL('../../resources/sfx/dig/wood1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/wood2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/wood3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/wood4.ogg', import.meta.url).href,
+  ],
+  digGravel: [
+    new URL('../../resources/sfx/dig/gravel1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/gravel2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/gravel3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/gravel4.ogg', import.meta.url).href,
+  ],
+  digSand: [
+    new URL('../../resources/sfx/dig/sand1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/sand2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/sand3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/sand4.ogg', import.meta.url).href,
+  ],
+  digSnow: [
+    new URL('../../resources/sfx/dig/snow1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/snow2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/snow3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/snow4.ogg', import.meta.url).href,
+  ],
+  digCloth: [
+    new URL('../../resources/sfx/dig/cloth1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/cloth2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/cloth3.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/dig/cloth4.ogg', import.meta.url).href,
+  ],
+  door: [
+    new URL('../../resources/sfx/random/door_open.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/random/door_close.ogg', import.meta.url).href,
+  ],
+  villager: [
+    new URL('../../resources/sfx/mob/villager/idle1.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/mob/villager/idle2.ogg', import.meta.url).href,
+    new URL('../../resources/sfx/mob/villager/idle3.ogg', import.meta.url).href,
+  ],
+  click: [new URL('../../resources/sfx/random/click.ogg', import.meta.url).href],
+  land: [new URL('../../resources/sfx/damage/fallsmall.ogg', import.meta.url).href],
+  levelUp: [new URL('../../resources/sfx/random/levelup.ogg', import.meta.url).href],
+} as const;
+
+type SampleMaterial = 'grass' | 'stone' | 'wood' | 'gravel' | 'sand' | 'snow' | 'cloth';
+
+const DIG_SAMPLES: Record<SampleMaterial, readonly string[]> = {
+  grass: SAMPLE_LIBRARY.digGrass,
+  stone: SAMPLE_LIBRARY.digStone,
+  wood: SAMPLE_LIBRARY.digWood,
+  gravel: SAMPLE_LIBRARY.digGravel,
+  sand: SAMPLE_LIBRARY.digSand,
+  snow: SAMPLE_LIBRARY.digSnow,
+  cloth: SAMPLE_LIBRARY.digCloth,
+};
+
+export function soundMaterialForBlock(blockType: string): SampleMaterial {
+  const value = blockType.toLowerCase();
+  if (/wood|log|plank|door|thatch/.test(value)) return 'wood';
+  if (/sand/.test(value)) return 'sand';
+  if (/snow|ice/.test(value)) return 'snow';
+  if (/gravel|dirt|mud|clay/.test(value)) return 'gravel';
+  if (/leaves|flower|grass/.test(value)) return 'grass';
+  if (/cloth|wool/.test(value)) return 'cloth';
+  return 'stone';
+}
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
   private ambientGain: GainNode | null = null;
   private ambientOsc: OscillatorNode | null = null;
   private isAmbientPlaying: boolean = false;
+  private readonly samplePools = new Map<string, HTMLAudioElement[]>();
+  private readonly activeSamples = new Set<HTMLAudioElement>();
+
+  private playSample(urls: readonly string[], volume: number, minimumRate = 0.94, maximumRate = 1.06): boolean {
+    if (this.isMuted || typeof Audio === 'undefined' || urls.length === 0) return false;
+    const url = urls[Math.floor(Math.random() * urls.length)]!;
+    const pool = this.samplePools.get(url) ?? [];
+    let audio = pool.find((candidate) => candidate.paused || candidate.ended);
+    if (!audio && pool.length < 4) {
+      audio = new Audio(url);
+      audio.preload = 'auto';
+      pool.push(audio);
+      this.samplePools.set(url, pool);
+    }
+    if (!audio) audio = pool[0];
+    if (!audio) return false;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = Math.max(0, Math.min(1, volume));
+      audio.playbackRate = minimumRate + Math.random() * (maximumRate - minimumRate);
+      this.activeSamples.add(audio);
+      audio.onended = () => this.activeSamples.delete(audio!);
+      void audio.play().catch(() => this.activeSamples.delete(audio!));
+      return true;
+    } catch (_) {
+      this.activeSamples.delete(audio);
+      return false;
+    }
+  }
 
   private initCtx(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -26,6 +179,10 @@ class SoundEngine {
 
   public setMuted(muted: boolean): void {
     this.isMuted = muted;
+    if (muted) {
+      for (const sample of this.activeSamples) sample.pause();
+      this.activeSamples.clear();
+    }
     if (muted && this.ambientGain) {
       this.ambientGain.gain.value = 0;
     } else if (!muted && this.ambientGain) {
@@ -45,6 +202,8 @@ class SoundEngine {
   /** Satisfying block placement pop/thud sound */
   public playBlockPlace(blockType: string = 'wood'): void {
     if (this.isMuted) return;
+    const material = soundMaterialForBlock(blockType);
+    if (this.playSample(SAMPLE_LIBRARY[material], 0.25, 0.82, 0.94)) return;
     const ctx = this.initCtx();
     if (!ctx) return;
 
@@ -74,8 +233,10 @@ class SoundEngine {
   }
 
   /** Crunchy block break disintegrate noise sound */
-  public playBlockBreak(): void {
+  public playBlockBreak(blockType: string = 'stone'): void {
     if (this.isMuted) return;
+    const material = soundMaterialForBlock(blockType);
+    if (this.playSample(DIG_SAMPLES[material], 0.34, 0.92, 1.08)) return;
     const ctx = this.initCtx();
     if (!ctx) return;
 
@@ -138,6 +299,7 @@ class SoundEngine {
   /** Landing ground thud */
   public playLand(): void {
     if (this.isMuted) return;
+    if (this.playSample(SAMPLE_LIBRARY.land, 0.3, 0.95, 1.02)) return;
     const ctx = this.initCtx();
     if (!ctx) return;
 
@@ -161,9 +323,85 @@ class SoundEngine {
     } catch (_) {}
   }
 
+  /** Short material-aware footstep used by the voxel walk controller. */
+  public playFootstep(blockType: string = 'grass'): void {
+    if (this.isMuted) return;
+    const material = soundMaterialForBlock(blockType);
+    if (this.playSample(SAMPLE_LIBRARY[material], 0.18, 0.9, 1.1)) return;
+    const ctx = this.initCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const hard = /stone|brick|ore|glass|obsidian|path/.test(blockType);
+      osc.type = hard ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(hard ? 105 + Math.random() * 25 : 72 + Math.random() * 18, now);
+      osc.frequency.exponentialRampToValueAtTime(hard ? 62 : 48, now + 0.045);
+      gain.gain.setValueAtTime(hard ? 0.085 : 0.07, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } catch (_) {}
+  }
+
+  /** Wooden hinge/latch cue for opening and closing doors. */
+  public playDoorToggle(opening: boolean): void {
+    if (this.isMuted) return;
+    const sample = SAMPLE_LIBRARY.door[opening ? 0 : 1];
+    if (this.playSample([sample], 0.32, 0.96, 1.04)) return;
+    const ctx = this.initCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const frequencies = opening ? [105, 170] : [170, 105];
+      for (const [index, frequency] of frequencies.entries()) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = now + index * 0.045;
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(frequency, start);
+        osc.frequency.exponentialRampToValueAtTime(70, start + 0.07);
+        gain.gain.setValueAtTime(0.09, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.075);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.075);
+      }
+    } catch (_) {}
+  }
+
+  /** Friendly two-note vocal chirp when an NPC conversation begins. */
+  public playNpcTalk(): void {
+    if (this.isMuted) return;
+    if (this.playSample(SAMPLE_LIBRARY.villager, 0.24, 0.96, 1.06)) return;
+    const ctx = this.initCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      for (const [index, frequency] of [260, 330].entries()) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = now + index * 0.055;
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(frequency + Math.random() * 20, start);
+        gain.gain.setValueAtTime(0.08, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.06);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.06);
+      }
+    } catch (_) {}
+  }
+
   /** Crisp UI button click feedback */
   public playClick(): void {
     if (this.isMuted) return;
+    if (this.playSample(SAMPLE_LIBRARY.click, 0.18, 0.98, 1.04)) return;
     const ctx = this.initCtx();
     if (!ctx) return;
 
@@ -217,6 +455,7 @@ class SoundEngine {
   /** Discovery fan fare for discovering ancient relics */
   public playRelicDiscovered(): void {
     if (this.isMuted) return;
+    if (this.playSample(SAMPLE_LIBRARY.levelUp, 0.4, 0.98, 1.02)) return;
     const ctx = this.initCtx();
     if (!ctx) return;
 

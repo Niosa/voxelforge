@@ -16,8 +16,18 @@ import {
   getAllWorldsFromDB,
   deleteWorldFromDB,
 } from '@/persistence/idb';
+import { repairAntimeridianGeometry } from '@/geo/antimeridian';
 
 const MAX_UNDO = 60;
+
+function repairLegacyFreehandGeometry(world: World): World {
+  for (const entity of Object.values(world.entities)) {
+    if (entity.geometry.type === 'Polygon' || entity.geometry.type === 'MultiPolygon') {
+      entity.geometry = repairAntimeridianGeometry(entity.geometry);
+    }
+  }
+  return world;
+}
 
 /** Preset descriptor for the world picker UI. */
 export interface SampleWorldPreset {
@@ -293,6 +303,7 @@ export const useWorldStore = create<WorldStore>()(
     },
 
     setWorld(world) {
+      repairLegacyFreehandGeometry(world);
       set((s) => {
         s.worlds[world.id] = { ...world, updatedAt: Date.now() };
         s.activeWorldId = world.id;
@@ -354,7 +365,7 @@ export const useWorldStore = create<WorldStore>()(
         const loaded: World[] = [];
         for (const s of summaries) {
           const w = await loadWorldFromDB(s.id);
-          if (w) loaded.push(w);
+          if (w) loaded.push(repairLegacyFreehandGeometry(w));
         }
         if (!loaded.length) return;
 

@@ -19,7 +19,21 @@ interface RuntimeMob {
 
 const MOB_COLORS: Record<MobSpecies, string> = {
   pig: '#e9a3a8', cow: '#7c5138', sheep: '#e5e7eb', chicken: '#f8fafc',
+  deer: '#9a6a43', rabbit: '#a89f91', horse: '#754c2f', fox: '#d86422', goat: '#b8b0a0',
 };
+
+const MOB_HEALTH: Record<MobSpecies, number> = {
+  chicken: 4, rabbit: 4, fox: 8, pig: 10, sheep: 10, goat: 12, deer: 14, cow: 16, horse: 20,
+};
+
+function speciesForHabitat(seed: number, x: number, z: number, biome: string): MobSpecies {
+  const selector = hash(seed + 991, x, z);
+  if (biome === 'snowy-tundra') return (['sheep', 'goat', 'rabbit'] as const)[selector % 3]!;
+  if (biome === 'forest-canopy') return (['deer', 'fox', 'rabbit', 'pig'] as const)[selector % 4]!;
+  if (biome === 'mountain-slate') return (['goat', 'sheep', 'deer'] as const)[selector % 3]!;
+  if (biome === 'desert-dunes') return (['horse', 'rabbit'] as const)[selector % 2]!;
+  return (['pig', 'cow', 'sheep', 'chicken', 'deer', 'rabbit', 'horse'] as const)[selector % 7]!;
+}
 
 function hash(seed: number, x: number, z: number): number {
   let value = seed ^ Math.imul(x, 73_856_093) ^ Math.imul(z, 19_349_663);
@@ -43,15 +57,16 @@ export function ensureBasicMobs(
     const selector = hash(seed + index * 17, Math.floor(anchorX / 24), Math.floor(anchorZ / 24));
     const x = Math.round(anchorX + (selector % 121) - 60);
     const z = Math.round(anchorZ + (Math.floor(selector / 127) % 121) - 60);
-    const surface = terrain.sampleSurface(x, z);
+    const spawnX = x + 0.5;
+    const spawnZ = z + 0.5;
+    const surface = terrain.sampleSurface(spawnX, spawnZ);
     if (surface.waterLevel !== null || surface.isCity) continue;
-    const speciesIndex = hash(seed + 991, x, z) % 4;
-    const species: MobSpecies = surface.biome === 'snowy-tundra' ? 'sheep' : (['pig', 'cow', 'sheep', 'chicken'] as const)[speciesIndex]!;
+    const species = speciesForHabitat(seed, x, z, surface.biome);
     const id = `mob:${species}:${Math.floor(x / 12)}:${Math.floor(z / 12)}`;
     if (result[id]) continue;
-    const location = { x: x + 0.5, y: surface.elevation + 1, z: z + 0.5, label: 'natural habitat' };
+    const location = { x: spawnX, y: surface.elevation + 1, z: spawnZ, label: 'natural habitat' };
     const mob: WorldMob = {
-      id, species, position: { ...location }, home: { ...location }, health: species === 'chicken' ? 4 : 10,
+      id, species, position: { ...location }, home: { ...location }, health: MOB_HEALTH[species],
       behavior: 'idle', createdAt: now, updatedAt: now,
     };
     result[id] = mob;
@@ -64,7 +79,10 @@ function makeMobMesh(noa: Engine, mob: WorldMob): Mesh {
   const scene = noa.rendering.getScene();
   const material = new StandardMaterial(`${mob.id}-material`, scene);
   material.diffuseColor = Color3.FromHexString(MOB_COLORS[mob.species]);
-  const scale = mob.species === 'chicken' ? 0.58 : mob.species === 'cow' ? 1.05 : 0.88;
+  const scale = mob.species === 'chicken' || mob.species === 'rabbit' ? 0.52
+    : mob.species === 'horse' ? 1.16
+    : mob.species === 'cow' || mob.species === 'deer' ? 1.05
+    : 0.88;
   const body = MeshBuilder.CreateBox(`${mob.id}-body`, { width: 1.0 * scale, height: 0.62 * scale, depth: 1.25 * scale }, scene);
   body.position.y = 0.62 * scale; body.material = material;
   const head = MeshBuilder.CreateBox(`${mob.id}-head`, { size: 0.56 * scale }, scene);
@@ -98,8 +116,11 @@ export class PersistentWalkMobManager {
     anchorZ: number,
     performanceMode: boolean,
   ) {
-    this.records = ensureBasicMobs(records, terrain, seed, anchorX, anchorZ, performanceMode ? 5 : 12);
-    const nearby = Object.values(this.records).filter((mob) => Math.hypot(mob.position.x - anchorX, mob.position.z - anchorZ) < 200).slice(0, performanceMode ? 5 : 12);
+    // The expanded cap also lets existing worlds that already persisted the
+    // original twelve-animal population acquire the newer habitat species.
+    const activeLimit = performanceMode ? 7 : 16;
+    this.records = ensureBasicMobs(records, terrain, seed, anchorX, anchorZ, activeLimit);
+    const nearby = Object.values(this.records).filter((mob) => Math.hypot(mob.position.x - anchorX, mob.position.z - anchorZ) < 200).slice(0, activeLimit);
     for (const mob of nearby) {
       const surface = terrain.sampleSurface(mob.position.x, mob.position.z);
       const mesh = makeMobMesh(noa, mob);
@@ -107,13 +128,15 @@ export class PersistentWalkMobManager {
       noa.ents.addComponentAgain(entityId, noa.ents.names.collideTerrain, null);
       noa.ents.addComponentAgain(entityId, noa.ents.names.collideEntities, null);
       const body = noa.ents.getPhysicsBody(entityId);
-      if (body) { body.gravityMultiplier = 1; body.autoStep = true; body.friction = 2.5; }
+      // Keep animals kinematic like citizens. Physics gravity can run before a
+      // streamed terrain chunk is ready and bury newly spawned animals.
+      if (body) { body.gravityMultiplier = 0; body.autoStep = false; body.friction = 2.5; }
       this.runtime.push({ record: { ...mob, position: { ...mob.position }, home: { ...mob.home } }, entityId, mesh, targetX: mob.position.x, targetZ: mob.position.z, nextDecisionAt: 0 });
     }
   }
 
-  update(): void {
-    const now = performance.now();
+  update(now = performance.now()): void {
+    const wallNow = Date.now();
     const player = this.noa.ents.getPosition(this.noa.playerEntity);
     for (const mob of this.runtime) {
       const local = this.noa.ents.getPosition(mob.entityId);
@@ -121,6 +144,12 @@ export class PersistentWalkMobManager {
       if (!local || !body) continue;
       const globalX = this.frame.originX + local[0]!;
       const globalZ = this.frame.originZ + local[2]!;
+      const currentSurface = this.terrain.sampleSurface(globalX, globalZ);
+      const expectedFeetY = currentSurface.elevation + 1;
+      if (Math.abs(local[1]! - expectedFeetY) > 0.05) {
+        this.noa.ents.setPosition(mob.entityId, [local[0]!, expectedFeetY, local[2]!]);
+        body.velocity[1] = 0;
+      }
       const playerDistance = Math.hypot(local[0]! - player[0]!, local[2]! - player[2]!);
       if (playerDistance < 4.5) {
         mob.record.behavior = 'flee';
@@ -144,13 +173,22 @@ export class PersistentWalkMobManager {
         const dz = mob.targetZ - globalZ;
         const distance = Math.max(0.01, Math.hypot(dx, dz));
         const speed = mob.record.behavior === 'flee' ? 1.8 : 0.72;
-        body.velocity[0] = dx / distance * speed;
-        body.velocity[2] = dz / distance * speed;
-        body.applyForce([0, 0, 0]);
+        const stepSeconds = 0.075;
+        const nextX = globalX + dx / distance * speed * stepSeconds;
+        const nextZ = globalZ + dz / distance * speed * stepSeconds;
+        const nextSurface = this.terrain.sampleSurface(nextX, nextZ);
+        body.velocity[0] = 0;
+        body.velocity[1] = 0;
+        body.velocity[2] = 0;
+        this.noa.ents.setPosition(mob.entityId, [
+          nextX - this.frame.originX,
+          nextSurface.elevation + 1,
+          nextZ - this.frame.originZ,
+        ]);
         mob.mesh.rotation.y = Math.atan2(dx, dz);
       }
       mob.record.position = { x: globalX, y: local[1]!, z: globalZ, label: mob.record.position.label };
-      mob.record.updatedAt = Date.now();
+      mob.record.updatedAt = wallNow;
     }
   }
 

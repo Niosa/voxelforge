@@ -29,8 +29,10 @@ export function lonLatToPlanetMeters(lon: number, lat: number): readonly [number
 }
 
 export function planetMetersToLonLat(x: number, z: number): readonly [number, number] {
-  const lon = x / EARTH_RADIUS_M * 180 / Math.PI;
-  const lat = (2 * Math.atan(Math.exp(z / EARTH_RADIUS_M)) - Math.PI / 2) * 180 / Math.PI;
+  let lon = (x / EARTH_RADIUS_M) * (180 / Math.PI);
+  lon = ((((lon + 180) % 360) + 360) % 360) - 180;
+  const safeZ = Math.max(-20_000_000, Math.min(20_000_000, z));
+  const lat = (2 * Math.atan(Math.exp(safeZ / EARTH_RADIUS_M)) - Math.PI / 2) * (180 / Math.PI);
   return [lon, lat];
 }
 

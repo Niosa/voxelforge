@@ -77,7 +77,6 @@ export function GlobeView() {
         theme,
       );
       syncEntitiesToCesium(v, worldEntities, selectedId);
-      updateFantasyImageryEntities(worldEntities, theme);
       flyToWorldCamera(v, world);
       v.scene.requestRender();
     }
@@ -93,14 +92,23 @@ export function GlobeView() {
     if (!world) return;
     const v = getViewer();
     if (!v || v.isDestroyed()) return;
-    const theme = world.properties?.theme ?? 'medieval';
     // On persistence load (updatedAt change without id change), do a full
     // re-sync so freshly loaded entities appear. No camera fly.
     syncEntitiesToCesium(v, worldEntities, selectedId);
-    updateFantasyImageryEntities(worldEntities, theme);
     v.scene.requestRender();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldEntities, worldUpdatedAt, selectedId]);
+
+  // Selection only changes Cesium entity styling. Rebuilding the imagery layer
+  // for every selection was a particularly expensive no-op on touch devices.
+  useEffect(() => {
+    if (!world) return;
+    const v = getViewer();
+    if (!v || v.isDestroyed()) return;
+    updateFantasyImageryEntities(worldEntities, world.properties?.theme ?? 'medieval');
+    v.scene.requestRender();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worldEntities, worldUpdatedAt]);
 
   useEffect(() => {
     const viewer = getViewer();
@@ -122,6 +130,7 @@ export function GlobeView() {
       ref={containerRef}
       className="absolute inset-0 h-full w-full"
       id="cesium-container"
+      style={{ minWidth: 2, minHeight: 2 }}
     />
   );
 }

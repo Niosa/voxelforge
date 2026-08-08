@@ -26,12 +26,19 @@ export interface CityColumnLayout {
   buildingHeight: number;
   buildingWall: boolean;
   buildingBlockId: number;
+  roofBlockId: number;
   lotWidth: number;
   lotDepth: number;
   district: 'core' | 'commercial' | 'residential' | 'park';
   parcelSeed: number;
   buildingUse: SettlementBuildingUse;
   buildingEntrance: boolean;
+  parkTree: boolean;
+  parkTreeDistance: number;
+  parkFeature: 'none' | 'bench' | 'fountain';
+  streetLight: boolean;
+  transitStop: boolean;
+  businessSignBlockId: number;
 }
 
 export interface CityLotPlan extends CityColumnLayout {
@@ -156,6 +163,34 @@ export function createCityLayout(entity: TerraEntity, worldSeed = 0): CityLayout
   };
 }
 
+export function cityDiagonalRoadAt(layout: CityLayout, x: number, z: number): boolean {
+  if (layout.diagonalPeriod <= 0) return false;
+  const value = positiveModulo(x + z + layout.diagonalOffset, layout.diagonalPeriod);
+  return value < 2 || value > layout.diagonalPeriod - 2;
+}
+
+function diagonalCrossesRange(layout: CityLayout, minimumSum: number, maximumSum: number, clearance = 2): boolean {
+  if (layout.diagonalPeriod <= 0) return false;
+  const low = minimumSum + layout.diagonalOffset - clearance;
+  const high = maximumSum + layout.diagonalOffset + clearance;
+  return Math.ceil(low / layout.diagonalPeriod) <= Math.floor(high / layout.diagonalPeriod);
+}
+
+export function cityParcelReservedForDiagonal(layout: CityLayout, cellX: number, cellZ: number): boolean {
+  const parcelSeed = hashCell(layout.seed, cellX, cellZ);
+  const insetX = layout.roadWidth + 2 + parcelSeed % 2;
+  const insetZ = layout.roadWidth + 2 + (parcelSeed >>> 3) % 2;
+  const maxX = layout.gridSize - 2 - (parcelSeed >>> 6) % 2;
+  const maxZ = layout.gridSize - 2 - (parcelSeed >>> 9) % 2;
+  const parcelOriginX = cellX * layout.gridSize - layout.offsetX;
+  const parcelOriginZ = cellZ * layout.gridSize - layout.offsetZ;
+  return diagonalCrossesRange(
+    layout,
+    parcelOriginX + insetX + parcelOriginZ + insetZ,
+    parcelOriginX + maxX + parcelOriginZ + maxZ,
+  );
+}
+
 export function cityColumnLayout(layout: CityLayout, x: number, z: number): CityColumnLayout {
   const shiftedX = x + layout.offsetX;
   const shiftedZ = z + layout.offsetZ;
@@ -165,16 +200,15 @@ export function cityColumnLayout(layout: CityLayout, x: number, z: number): City
   const cellZ = Math.floor(shiftedZ / layout.gridSize);
   const parcelSeed = hashCell(layout.seed, cellX, cellZ);
   const primaryRoad = localX < layout.roadWidth || localZ < layout.roadWidth;
-  const diagonalValue = layout.diagonalPeriod > 0
-    ? positiveModulo(x + z + layout.diagonalOffset, layout.diagonalPeriod)
-    : 99;
-  const diagonalRoad = diagonalValue < 2 || diagonalValue > layout.diagonalPeriod - 2;
+  const diagonalRoad = cityDiagonalRoadAt(layout, x, z);
   const road = primaryRoad || diagonalRoad;
-  const park = !road && parcelSeed % (layout.settlementType === 'town' ? 7 : 11) === 0;
   const insetX = layout.roadWidth + 2 + parcelSeed % 2;
   const insetZ = layout.roadWidth + 2 + (parcelSeed >>> 3) % 2;
   const maxX = layout.gridSize - 2 - (parcelSeed >>> 6) % 2;
   const maxZ = layout.gridSize - 2 - (parcelSeed >>> 9) % 2;
+  const diagonalReservedLot = cityParcelReservedForDiagonal(layout, cellX, cellZ);
+  const park = !road && (diagonalReservedLot || parcelSeed % (layout.settlementType === 'town' ? 7 : 11) === 0);
+  const decoratedPark = park && !diagonalReservedLot;
   const inBuilding = !road && !park && localX >= insetX && localX <= maxX && localZ >= insetZ && localZ <= maxZ;
   const distance = Math.hypot(x - layout.centerX, z - layout.centerZ);
   const core = layout.coreRadius > 0 && distance < layout.coreRadius;
@@ -189,19 +223,73 @@ export function cityColumnLayout(layout: CityLayout, x: number, z: number): City
   const baseHeight = layout.settlementType === 'town' ? 3 : core ? 7 + Math.round(layout.density * 4) : commercial ? 5 : 3;
   const variation = layout.settlementType === 'town' ? 4 : core ? 7 + Math.round(layout.density * 7) : commercial ? 6 : 5;
   const buildingHeight = inBuilding ? baseHeight + (parcelSeed >>> 15) % variation : 0;
+  const roadVerge = !road && !inBuilding && !park && (
+    (localX === layout.roadWidth && localZ >= layout.roadWidth + 2)
+    || (localZ === layout.roadWidth && localX >= layout.roadWidth + 2)
+  );
+  const streetLight = roadVerge
+    && (localX + localZ + (parcelSeed >>> 5)) % (layout.settlementType === 'town' ? 9 : 7) === 0;
+  const transitStop = layout.settlementType === 'city'
+    && roadVerge
+    && parcelSeed % 13 === 0
+    && (localX === Math.floor(layout.gridSize / 2) || localZ === Math.floor(layout.gridSize / 2));
+  const parkQuarter = Math.max(layout.roadWidth + 3, Math.floor(layout.gridSize / 3));
+  const parkThreeQuarter = Math.min(layout.gridSize - 3, Math.floor(layout.gridSize * 2 / 3));
+  const parkTreeDistance = decoratedPark ? Math.min(
+    Math.max(Math.abs(localX - parkQuarter), Math.abs(localZ - parkQuarter)),
+    Math.max(Math.abs(localX - parkThreeQuarter), Math.abs(localZ - parkThreeQuarter)),
+  ) : Number.POSITIVE_INFINITY;
+  const parkTree = parkTreeDistance === 0;
+  const parkCenter = decoratedPark
+    && localX === Math.floor(layout.gridSize / 2)
+    && localZ === Math.floor(layout.gridSize / 2);
+  const parkFeature = !parkCenter ? 'none'
+    : parcelSeed % 3 === 0 ? 'fountain'
+    : 'bench';
+  const buildingEntrance = inBuilding && localZ === insetZ && localX === Math.floor((insetX + maxX) / 2);
+  const businessSignBlockId = !buildingEntrance ? 0
+    : buildingUse === 'shop' ? 14
+    : buildingUse === 'inn' ? 17
+    : buildingUse === 'workshop' ? 18
+    : buildingUse === 'office' ? 19
+    : buildingUse === 'civic' ? 12
+    : 0;
+  const materialPalette = layout.settlementType === 'town'
+    ? [5, 42, 11, 28]
+    : district === 'core'
+      ? [12, 13, 11, 37]
+      : district === 'commercial'
+        ? [11, 12, 27, 37]
+        : [11, 42, 28, 37];
+  const buildingBlockId = materialPalette[(parcelSeed >>> 8) % materialPalette.length]!;
+  const roofPalette = layout.settlementType === 'town'
+    ? [22, 28, 42]
+    : district === 'core'
+      ? [13, 12, 37]
+      : district === 'commercial'
+        ? [13, 27, 37]
+        : [22, 13, 42];
+  const roofBlockId = roofPalette[(parcelSeed >>> 11) % roofPalette.length]!;
 
   return {
     road,
     park,
     buildingHeight,
     buildingWall: inBuilding && (localX === insetX || localX === maxX || localZ === insetZ || localZ === maxZ),
-    buildingBlockId: layout.settlementType === 'town' ? 5 : district === 'core' ? 12 : 11,
+    buildingBlockId,
+    roofBlockId,
     lotWidth: Math.max(1, maxX - insetX + 1),
     lotDepth: Math.max(1, maxZ - insetZ + 1),
     district,
     parcelSeed,
     buildingUse,
-    buildingEntrance: inBuilding && localZ === insetZ && localX === Math.floor((insetX + maxX) / 2),
+    buildingEntrance,
+    parkTree,
+    parkTreeDistance,
+    parkFeature,
+    streetLight: streetLight && !transitStop,
+    transitStop,
+    businessSignBlockId,
   };
 }
 

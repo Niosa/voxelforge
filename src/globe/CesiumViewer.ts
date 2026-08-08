@@ -123,6 +123,7 @@ class ProceduralFantasyImageryProvider {
 
       const nativeW = nativeRect.east - nativeRect.west;
       const nativeH = nativeRect.north - nativeRect.south;
+      if (nativeW <= 0 || nativeH <= 0) return Promise.resolve(canvas);
 
       // Draw Polygons
       for (const entity of this.sortedPolygonEntities) {
@@ -152,14 +153,23 @@ class ProceduralFantasyImageryProvider {
         }
 
         const projectRing = (r: [number, number][], p: Path2D) => {
+          let moved = false;
           for (let i = 0; i < r.length; i++) {
-            const [lon, lat] = r[i]!;
+            const pt = r[i];
+            if (!pt) continue;
+            const [lon, lat] = pt;
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
             const carto = Cartographic.fromDegrees(lon, lat);
             const projected = projection.project(carto);
             const tx = ((projected.x - nativeRect.west) / nativeW) * 256;
             const ty = ((nativeRect.north - projected.y) / nativeH) * 256;
-            if (i === 0) p.moveTo(tx, ty);
-            else p.lineTo(tx, ty);
+            if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
+            if (!moved) {
+              p.moveTo(tx, ty);
+              moved = true;
+            } else {
+              p.lineTo(tx, ty);
+            }
           }
           p.closePath();
         };
@@ -1090,6 +1100,7 @@ export function applyPerformanceModeSettings(): void {
     (viewer.scene.globe as unknown as { tileCacheSize: number }).tileCacheSize = perf ? 50 : 100;
     viewer.resolutionScale = perf ? 0.75 : 1.0;
     viewer.scene.fog.enabled = !perf;
+    viewer.scene.logarithmicDepthBuffer = false;
     if (viewer.scene.skyAtmosphere) {
       viewer.scene.skyAtmosphere.show = !perf;
     }
@@ -1171,6 +1182,20 @@ export function updateFantasyImageryEntities(
 ): void {
   if (!viewer || viewer.isDestroyed() || !isFantasyWorld) return;
   if (currentImageryStyle === 'blank' || currentImageryStyle === 'stylized') return;
+
+  const count = viewer.imageryLayers.length;
+  for (let i = 0; i < count; i++) {
+    const layer = viewer.imageryLayers.get(i);
+    const provider = layer?.imageryProvider as unknown as {
+      updateEntities?: (ents: Record<string, TerraEntity>) => void;
+    };
+    if (provider && typeof provider.updateEntities === 'function') {
+      provider.updateEntities(entities);
+      viewer.scene.requestRender();
+      return;
+    }
+  }
+
   setGlobeImageryStyle(currentImageryStyle, entities, theme);
 }
 
@@ -1336,7 +1361,8 @@ export function createTerraforgeViewer(container: HTMLElement): Viewer {
   viewer.scene.globe.baseColor = Color.fromCssColorString('#0b172a');
   viewer.scene.globe.enableLighting = false;
   viewer.scene.globe.depthTestAgainstTerrain = true;
-  viewer.scene.logarithmicDepthBuffer = true;
+  // Disabling logarithmic depth buffer prevents MSL (Metal Shading Language) shader linking failures on iOS Safari / WebGL ANGLE backends.
+  viewer.scene.logarithmicDepthBuffer = false;
   viewer.scene.fog.enabled = true;
   if (viewer.scene.skyAtmosphere) {
     viewer.scene.skyAtmosphere.show = true;

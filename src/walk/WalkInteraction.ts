@@ -21,6 +21,7 @@ export type BlockPosition = readonly [number, number, number];
 export interface WalkBlockTarget {
   position: BlockPosition;
   adjacent: BlockPosition;
+  normal?: readonly [number, number, number];
 }
 
 export function nextTouchPitch(currentPitch: number, deltaY: number, sensitivity = 0.003, maxPitch = 1.45): number {

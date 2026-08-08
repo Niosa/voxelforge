@@ -92,6 +92,11 @@ export interface WorldNpc {
   name: string;
   settlementId: string;
   occupation: NpcOccupation;
+  householdId?: string;
+  familyName?: string;
+  familyRole?: 'adult' | 'partner' | 'relative';
+  familyIds?: string[];
+  familyMemberNames?: string[];
   home: NpcLocation;
   workplace: NpcLocation;
   market: NpcLocation;
@@ -107,7 +112,7 @@ export interface WorldNpc {
   lastSimulatedAt: number;
 }
 
-export type MobSpecies = 'pig' | 'cow' | 'sheep' | 'chicken';
+export type MobSpecies = 'pig' | 'cow' | 'sheep' | 'chicken' | 'deer' | 'rabbit' | 'horse' | 'fox' | 'goat';
 export type MobBehavior = 'idle' | 'wander' | 'flee';
 
 export interface WorldMob {

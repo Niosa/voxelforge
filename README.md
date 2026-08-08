@@ -19,6 +19,14 @@ See also `PROJECT_PLAN.md`, `AGENT_RULES.md`, and `CHECKLIST.md`.
 - `npm run preview` — preview production build
 - `npm test` — run unit tests via vitest
 
+## Walk mode controller controls
+
+Standard-mapped Xbox, PlayStation, Switch Pro, and compatible web gamepads are
+supported. Use the left stick to move, right stick to look, A/Cross to jump,
+L3 to toggle sprint, right trigger to break, and left trigger to use, interact, or
+place. LB/RB or D-pad left/right changes hotbar slots. D-pad up toggles creative
+flight; B/Circle descends while flying.
+
 ## License & Assets
 
 No Google Earth imagery. Stylized globe only (`EllipsoidTerrainProvider`). User-generated content stays local unless exported.

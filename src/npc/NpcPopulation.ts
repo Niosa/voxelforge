@@ -38,7 +38,7 @@ function locationForLot(lot: CityLotPlan, label: string, terrain: PlanetTerrainS
   return { x: targetX + 0.5, y: surface.elevation + 1, z: targetZ + 0.5, label };
 }
 
-function scheduleFor(occupation: NpcOccupation): NpcScheduleEntry[] {
+export function scheduleFor(occupation: NpcOccupation): NpcScheduleEntry[] {
   if (occupation === 'guard') {
     return [
       { startHour: 0, activity: 'sleep', destination: 'home' },
@@ -50,13 +50,58 @@ function scheduleFor(occupation: NpcOccupation): NpcScheduleEntry[] {
       { startHour: 22, activity: 'travel-home', destination: 'home' },
     ];
   }
+  if (occupation === 'farmer') {
+    return [
+      { startHour: 0, activity: 'sleep', destination: 'home' },
+      { startHour: 5, activity: 'breakfast', destination: 'home' },
+      { startHour: 5.5, activity: 'work', destination: 'work' },
+      { startHour: 11.5, activity: 'lunch', destination: 'home' },
+      { startHour: 12.5, activity: 'work', destination: 'work' },
+      { startHour: 17, activity: 'market', destination: 'market' },
+      { startHour: 19, activity: 'leisure', destination: 'tavern' },
+      { startHour: 21, activity: 'travel-home', destination: 'home' },
+    ];
+  }
+  if (occupation === 'innkeeper') {
+    return [
+      { startHour: 0, activity: 'sleep', destination: 'work' },
+      { startHour: 7, activity: 'breakfast', destination: 'home' },
+      { startHour: 9, activity: 'market', destination: 'market' },
+      { startHour: 11, activity: 'work', destination: 'work' },
+      { startHour: 15, activity: 'leisure', destination: 'market' },
+      { startHour: 17, activity: 'work', destination: 'tavern' },
+      { startHour: 23.5, activity: 'travel-home', destination: 'home' },
+    ];
+  }
+  if (occupation === 'merchant') {
+    return [
+      { startHour: 0, activity: 'sleep', destination: 'home' },
+      { startHour: 7, activity: 'breakfast', destination: 'home' },
+      { startHour: 8, activity: 'market', destination: 'market' },
+      { startHour: 12.5, activity: 'lunch', destination: 'tavern' },
+      { startHour: 13.5, activity: 'work', destination: 'work' },
+      { startHour: 18, activity: 'leisure', destination: 'market' },
+      { startHour: 21, activity: 'travel-home', destination: 'home' },
+    ];
+  }
+  if (occupation === 'artisan') {
+    return [
+      { startHour: 0, activity: 'sleep', destination: 'home' },
+      { startHour: 6.5, activity: 'breakfast', destination: 'home' },
+      { startHour: 7.5, activity: 'work', destination: 'work' },
+      { startHour: 12, activity: 'lunch', destination: 'market' },
+      { startHour: 13, activity: 'work', destination: 'work' },
+      { startHour: 18.5, activity: 'tavern', destination: 'tavern' },
+      { startHour: 22, activity: 'travel-home', destination: 'home' },
+    ];
+  }
   return [
     { startHour: 0, activity: 'sleep', destination: 'home' },
     { startHour: 6.5, activity: 'breakfast', destination: 'home' },
     { startHour: 8, activity: 'work', destination: 'work' },
     { startHour: 12, activity: 'lunch', destination: 'market' },
     { startHour: 13, activity: 'work', destination: 'work' },
-    { startHour: 17.5, activity: 'market', destination: 'market' },
+    { startHour: 17.5, activity: 'leisure', destination: 'market' },
     { startHour: 19, activity: 'tavern', destination: 'tavern' },
     { startHour: 21.5, activity: 'travel-home', destination: 'home' },
   ];
@@ -101,8 +146,11 @@ function generateSettlementNpcs(
       const buildingUse = uses[index % uses.length]!;
       return {
         x, z, lon, lat, distance, road: false, park: false, buildingHeight: 4, buildingWall: true,
-        buildingBlockId: 11, lotWidth: 7, lotDepth: 7, district: 'residential' as const,
+        buildingBlockId: 11, roofBlockId: 13, lotWidth: 7, lotDepth: 7, district: 'residential' as const,
         parcelSeed: index, buildingUse, buildingEntrance: true,
+        parkTree: false, parkTreeDistance: Number.POSITIVE_INFINITY,
+        parkFeature: 'none' as const, streetLight: false, transitStop: false,
+        businessSignBlockId: 0,
       };
     });
   }
@@ -111,12 +159,18 @@ function generateSettlementNpcs(
   const tavernLot = lots.find((lot) => lot.buildingUse === 'inn') ?? workplaces[0] ?? lots[0]!;
   const marketLot = lots.find((lot) => lot.buildingUse === 'shop' || lot.buildingUse === 'civic') ?? lots[0]!;
   const rosterSize = Math.min(
-    settlement.type === 'town' ? 18 : 28,
-    Math.max(settlement.type === 'town' ? 8 : 6, homes.length * (settlement.type === 'town' ? 3 : 2)),
+    settlement.type === 'town' ? 30 : 48,
+    Math.max(settlement.type === 'town' ? 12 : 16, homes.length * 3),
   );
+  const householdCount = Math.max(1, Math.min(
+    Math.max(1, homes.length),
+    Math.ceil(rosterSize / 2.5),
+  ));
   const result: WorldNpc[] = [];
   for (let index = 0; index < rosterSize; index++) {
-    const homeLot = homes[index % Math.max(1, homes.length)] ?? lots[index % lots.length]!;
+    const householdIndex = index % householdCount;
+    const householdGeneration = Math.floor(index / householdCount);
+    const homeLot = homes[householdIndex % Math.max(1, homes.length)] ?? lots[index % lots.length]!;
     const workLot = workplaces[index % Math.max(1, workplaces.length)] ?? lots[(index + 1) % lots.length]!;
     let occupation = OCCUPATIONS[selectIndex(index + seed, OCCUPATIONS.length)]!;
     if (workLot.buildingUse === 'inn') occupation = 'innkeeper';
@@ -125,16 +179,22 @@ function generateSettlementNpcs(
     else if (workLot.buildingUse === 'farm') occupation = 'farmer';
     else if (workLot.buildingUse === 'civic') occupation = 'guard';
     const id = `npc-${settlement.id}-${index}`;
-    const home = locationForLot(homeLot, `${settlement.name} home ${index + 1}`, terrain);
+    const familyName = FAMILY_NAMES[selectIndex(householdIndex + seed, FAMILY_NAMES.length)]!;
+    const householdId = `household-${settlement.id}-${householdIndex}`;
+    const familyRole = householdGeneration === 0 ? 'adult' : householdGeneration === 1 ? 'partner' : 'relative';
+    const home = locationForLot(homeLot, `${familyName} residence`, terrain);
     const workplace = locationForLot(workLot, `${settlement.name} ${workLot.buildingUse}`, terrain);
     const market = locationForLot(marketLot, `${settlement.name} market`, terrain);
     const tavern = locationForLot(tavernLot, `${settlement.name} inn`, terrain);
     const schedule = scheduleFor(occupation);
     result.push({
       id,
-      name: `${FIRST_NAMES[index % FIRST_NAMES.length]} ${FAMILY_NAMES[selectIndex(index + seed, FAMILY_NAMES.length)]}`,
+      name: `${FIRST_NAMES[index % FIRST_NAMES.length]} ${familyName}`,
       settlementId: settlement.id,
       occupation,
+      householdId,
+      familyName,
+      familyRole,
       home,
       workplace,
       market,
@@ -149,6 +209,20 @@ function generateSettlementNpcs(
       updatedAt: now,
       lastSimulatedAt: now,
     });
+  }
+  const households = new Map<string, WorldNpc[]>();
+  for (const npc of result) {
+    const members = households.get(npc.householdId!) ?? [];
+    members.push(npc);
+    households.set(npc.householdId!, members);
+  }
+  for (const members of households.values()) {
+    for (const npc of members) {
+      const relatives = members.filter((member) => member.id !== npc.id);
+      npc.familyIds = relatives.map((member) => member.id);
+      npc.familyMemberNames = relatives.map((member) => member.name);
+      for (const relative of relatives) npc.relationships[relative.id] = 45;
+    }
   }
   return result;
 }
@@ -166,8 +240,30 @@ export function ensureNpcPopulation(
   );
   const terrain = new PlanetTerrainSampler(entities, seed);
   for (const settlement of settlements) {
-    for (const npc of generateSettlementNpcs(settlement, terrain, seed, now)) {
-      if (!next[npc.id]) next[npc.id] = npc;
+    for (const generated of generateSettlementNpcs(settlement, terrain, seed, now)) {
+      const existingNpc = next[generated.id];
+      if (!existingNpc) next[generated.id] = generated;
+      else {
+        // Refresh generated routines and destinations as settlement layouts evolve,
+        // while retaining the citizen's persistent identity, position, and memories.
+        next[generated.id] = {
+          ...existingNpc,
+          householdId: generated.householdId,
+          familyName: generated.familyName,
+          familyRole: generated.familyRole,
+          familyIds: generated.familyIds,
+          familyMemberNames: generated.familyMemberNames,
+          home: generated.home,
+          workplace: generated.workplace,
+          market: generated.market,
+          tavern: generated.tavern,
+          schedule: generated.schedule,
+          relationships: {
+            ...generated.relationships,
+            ...existingNpc.relationships,
+          },
+        };
+      }
     }
   }
   return next;

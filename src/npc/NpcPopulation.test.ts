@@ -33,4 +33,21 @@ describe('persistent NPC population', () => {
     const population = ensureNpcPopulation({}, { town }, 8, 100);
     expect(Object.keys(population).length).toBeGreaterThan(10);
   });
+
+  it('creates persistent families that share authored homes', () => {
+    const population = ensureNpcPopulation({}, { city }, 5, 100);
+    const households = Object.values(population).reduce<Record<string, typeof population[string][]>>((groups, npc) => {
+      const id = npc.householdId ?? npc.id;
+      (groups[id] ??= []).push(npc);
+      return groups;
+    }, {});
+    const family = Object.values(households).find((members) => members.length > 1);
+    expect(family).toBeDefined();
+    expect(new Set(family!.map((npc) => npc.home.label)).size).toBe(1);
+    expect(new Set(family!.map((npc) => npc.familyName)).size).toBe(1);
+    expect(family![0]!.familyIds).toContain(family![1]!.id);
+
+    const refreshed = ensureNpcPopulation(population, { city }, 5, 200);
+    expect(refreshed[family![0]!.id]!.householdId).toBe(family![0]!.householdId);
+  });
 });

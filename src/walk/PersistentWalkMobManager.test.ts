@@ -12,5 +12,10 @@ describe('basic persistent mobs', () => {
     expect(Object.keys(first)).toHaveLength(8);
     expect(second).toEqual(first);
     expect(Object.values(first).every((mob) => mob.health > 0)).toBe(true);
+    expect(Object.values(first).every((mob) => {
+      const surface = terrain.sampleSurface(mob.position.x, mob.position.z);
+      return mob.position.y === surface.elevation + 1;
+    })).toBe(true);
+    expect(new Set(Object.values(first).map((mob) => mob.species)).size).toBeGreaterThan(1);
   });
 });

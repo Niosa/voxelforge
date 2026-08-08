@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { TerraEntity } from '@/entities/types';
 import { lonLatToPlanetMeters } from '@/planet/spatial/PlanetGrid';
-import { foliageCellHasTree, foliageTreePosition, naturalPondAt, PlanetTerrainSampler } from './PlanetTerrainSampler';
+import { getBlockGroup } from '@/walk/blockRegistry';
+import {
+  NATURAL_SETTLEMENT_CELL_SIZE,
+  foliageCellHasTree,
+  foliageTreePosition,
+  naturalPondAt,
+  naturalSettlementAt,
+  naturalTopographyAt,
+  PlanetTerrainSampler,
+} from './PlanetTerrainSampler';
 
 function entity(partial: Partial<TerraEntity> & Pick<TerraEntity, 'id' | 'type' | 'geometry'>): TerraEntity {
   return {
@@ -20,6 +29,36 @@ function entity(partial: Partial<TerraEntity> & Pick<TerraEntity, 'id' | 'type' 
 }
 
 describe('PlanetTerrainSampler', () => {
+  it('creates deterministic natural terrain provinces, lakes, and settlement sites', () => {
+    const topographies = new Set<string>();
+    for (let x = -4_000; x <= 4_000; x += 400) {
+      for (let z = -4_000; z <= 4_000; z += 400) topographies.add(naturalTopographyAt(71, x, z));
+    }
+    expect(topographies).toContain('hills');
+    expect(topographies).toContain('mountains');
+
+    let lakeFound = false;
+    for (let cellX = -12; cellX <= 12 && !lakeFound; cellX++) {
+      const probe = naturalPondAt(71, cellX * 96, 0, 'lush-grassland');
+      lakeFound = naturalPondAt(71, probe.centerX, probe.centerZ, 'lush-grassland').water;
+    }
+    expect(lakeFound).toBe(true);
+
+    let settlementFound = false;
+    for (let cellX = -8; cellX <= 8 && !settlementFound; cellX++) {
+      for (let cellZ = -8; cellZ <= 8 && !settlementFound; cellZ++) {
+        const probe = naturalSettlementAt(
+          71,
+          cellX * NATURAL_SETTLEMENT_CELL_SIZE,
+          cellZ * NATURAL_SETTLEMENT_CELL_SIZE,
+          'lush-grassland',
+        );
+        settlementFound = naturalSettlementAt(71, probe.centerX, probe.centerZ, 'lush-grassland').active;
+      }
+    }
+    expect(settlementFound).toBe(true);
+  });
+
   it('compiles locations outside authored land as persistent ocean columns', () => {
     const sampler = new PlanetTerrainSampler({}, 42);
     const sample = sampler.sampleSurface(0, 0);
@@ -46,7 +85,8 @@ describe('PlanetTerrainSampler', () => {
       for (let z = -10; z <= 10 && !foundTree; z++) {
         const column = sampler.sampleSurface(x, z);
         for (let y = column.elevation + 1; y <= column.elevation + 7; y++) {
-          if (sampler.blockAt(x, y, z, column) === 5) foundTree = true;
+          const blockId = sampler.blockAt(x, y, z, column);
+          if (getBlockGroup(blockId, 'wood') > 0) foundTree = true;
         }
       }
     }

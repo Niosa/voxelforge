@@ -16,11 +16,11 @@ export function MobileControlsOverlay() {
 
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [joystickCenter, setJoystickCenter] = useState({ x: 0, y: 0 });
-  const [knobPos, setKnobPos] = useState({ x: 0, y: 0 });
   const [isFlying, setIsFlying] = useState(false);
   const [isSprinting, setIsSprinting] = useState(false);
 
   const joystickPointerId = useRef<number | null>(null);
+  const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickOrigin = useRef({ x: 0, y: 0 });
   const lookPointerId = useRef<number | null>(null);
   const lastLookPosition = useRef({ x: 0, y: 0 });
@@ -47,7 +47,9 @@ export function MobileControlsOverlay() {
 
   const resetJoystick = useCallback(() => {
     joystickPointerId.current = null;
-    setKnobPos({ x: 0, y: 0 });
+    if (joystickKnobRef.current) {
+      joystickKnobRef.current.style.transform = 'translate(-50%, -50%)';
+    }
     setMovement(0, 0);
   }, [setMovement]);
 
@@ -68,7 +70,9 @@ export function MobileControlsOverlay() {
     const dx = clientX - joystickOrigin.current.x;
     const dy = clientY - joystickOrigin.current.y;
     const { knobX, knobY, forward, side } = normalizeJoystickDelta(dx, dy, JOYSTICK_RADIUS);
-    setKnobPos({ x: knobX, y: knobY });
+    if (joystickKnobRef.current) {
+      joystickKnobRef.current.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+    }
     setMovement(forward, side);
   }, [setMovement]);
 
@@ -81,7 +85,6 @@ export function MobileControlsOverlay() {
     joystickOrigin.current = { x: event.clientX, y: event.clientY };
     const rect = event.currentTarget.getBoundingClientRect();
     setJoystickCenter({ x: event.clientX - rect.left, y: event.clientY - rect.top });
-    setKnobPos({ x: 0, y: 0 });
     setMovement(0, 0);
   }, [setMovement]);
 
@@ -156,8 +159,9 @@ export function MobileControlsOverlay() {
             style={{ left: joystickCenter.x, top: joystickCenter.y, width: 100, height: 100 }}
           >
             <div
+              ref={joystickKnobRef}
               className="absolute left-1/2 top-1/2 h-12 w-12 rounded-full border border-sky-300/80 bg-sky-400/60 shadow-lg"
-              style={{ transform: `translate(calc(-50% + ${knobPos.x}px), calc(-50% + ${knobPos.y}px))` }}
+              style={{ transform: 'translate(-50%, -50%)' }}
             />
           </div>
         )}
