@@ -1,0 +1,68 @@
+{
+  "id": "middle-earth-preset",
+  "name": "Middle-earth (Arda)",
+  "version": 1,
+  "camera": {
+    "lon": 0,
+    "lat": 22,
+    "height": 9000000,
+    "heading": 0,
+    "pitch": -90
+  },
+  "entities": {
+    "me-gondor": {
+      "id": "me-gondor",
+      "type": "region",
+      "name": "Gondor",
+      "description": "The great realm of Men in the south, guarded by the White Mountains.",
+      "tags": ["middle-earth", "realm", "men"],
+      "color": "#94a3b8",
+      "fillOpacity": 0.45,
+      "parentId": null,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-15, 0], [15, 0], [18, 12], [-10, 14], [-15, 0]]]
+      },
+      "images": [],
+      "properties": {},
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    "me-mordor": {
+      "id": "me-mordor",
+      "type": "region",
+      "name": "Mordor",
+      "description": "The Black Land, ringed by the Mountains of Shadow and Mountains of Ash.",
+      "tags": ["middle-earth", "realm", "shadow"],
+      "color": "#ef4444",
+      "fillOpacity": 0.5,
+      "parentId": null,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[18, 0], [40, 0], [42, 14], [18, 14], [18, 0]]]
+      },
+      "images": [],
+      "properties": {},
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    "me-minas-tirith": {
+      "id": "me-minas-tirith",
+      "type": "city",
+      "name": "Minas Tirith",
+      "description": "The Citadel of the Guard, seven-tiered city of Gondor with the White Tree.",
+      "tags": ["gondor", "city"],
+      "color": "#f8fafc",
+      "fillOpacity": 1,
+      "parentId": "me-gondor",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [5, 5]
+      },
+      "images": [],
+      "properties": { "heightMeters": 300 },
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "id": "earth-preset",
+  "name": "Real Earth",
+  "version": 1,
+  "camera": {
+    "lon": 0,
+    "lat": 20,
+    "height": 14000000,
+    "heading": 0,
+    "pitch": -90
+  },
+  "entities": {
+    "earth-na": {
+      "id": "earth-na",
+      "type": "continent",
+      "name": "North America",
+      "description": "Home to mountain ranges, vast plains, and diverse ecosystems.",
+      "tags": ["earth", "continent"],
+      "color": "#34d399",
+      "fillOpacity": 0.35,
+      "parentId": null,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-168, 60], [-130, 25], [-80, 8], [-60, 45], [-60, 83], [-168, 60]]]
+      },
+      "images": [],
+      "properties": {},
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    "earth-eu": {
+      "id": "earth-eu",
+      "type": "continent",
+      "name": "Europe",
+      "description": "Rich in cultural history, historic landmarks, and coastlines.",
+      "tags": ["earth", "continent"],
+      "color": "#60a5fa",
+      "fillOpacity": 0.35,
+      "parentId": null,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-10, 35], [40, 35], [40, 70], [-10, 70], [-10, 35]]]
+      },
+      "images": [],
+      "properties": {},
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    "earth-tokyo": {
+      "id": "earth-tokyo",
+      "type": "city",
+      "name": "Tokyo",
+      "description": "Capital of Japan and the world’s most populous metropolitan area.",
+      "tags": ["capital", "asia"],
+      "color": "#ec4899",
+      "fillOpacity": 1,
+      "parentId": null,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.69, 35.68]
+      },
+      "images": [],
+      "properties": { "population": 14000000 },
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "voxelforge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@turf/centroid": "^7.2.0",
+    "@turf/turf": "^7.2.0",
+    "aabb-3d": "https://codeload.github.com/fenomas/aabb-3d/tar.gz/b928d0a65f64d0014e36231f94f401967a3b49ef",
+    "box-intersect": "https://codeload.github.com/fenomas/box-intersect/tar.gz/383cb9bef2cf7140ca6ca9b705669fb108d1357f",
+    "cesium": "^1.126.0",
+    "immer": "^10.1.1",
+    "noa-engine": "^0.33.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ulid": "^2.3.0",
+    "zustand": "^4.5.5"
+  },
+  "overrides": {
+    "aabb-3d": "https://codeload.github.com/fenomas/aabb-3d/tar.gz/b928d0a65f64d0014e36231f94f401967a3b49ef",
+    "box-intersect": "https://codeload.github.com/fenomas/box-intersect/tar.gz/383cb9bef2cf7140ca6ca9b705669fb108d1357f"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.13.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.7.3",
+    "vite": "^6.1.0",
+    "vite-plugin-cesium": "^1.2.22",
+    "vitest": "^3.0.5"
+  }
+}
